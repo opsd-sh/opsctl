@@ -1,7 +1,4 @@
-use clap::{
-    Parser, Subcommand,
-    builder::styling::AnsiColor,
-};
+use clap::{Parser, Subcommand, builder::styling::AnsiColor};
 use opsd_rust::{CreateUserRequest, OpsdClient};
 use serde::Serialize;
 use url::Url;
@@ -20,8 +17,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Call the hello-world sandbox endpoint.
-    HelloWorld,
+    /// Call hello endpoints.
+    Hello {
+        #[command(subcommand)]
+        command: HelloCommand,
+    },
     /// Manage users.
     Users {
         #[command(subcommand)]
@@ -40,6 +40,14 @@ enum UsersCommand {
         #[arg(long)]
         email: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum HelloCommand {
+    /// Call the hello-world sandbox endpoint.
+    World,
+    /// Call the application-restricted hello-application sandbox endpoint.
+    Application,
 }
 
 #[tokio::main]
@@ -63,10 +71,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match cli.command {
-        Command::HelloWorld => {
-            let response = client.hello_world().await?;
-            print_json(&response)?;
-        }
+        Command::Hello { command } => match command {
+            HelloCommand::World => {
+                let response = client.hello_world().await?;
+                print_json(&response)?;
+            }
+            HelloCommand::Application => {
+                let response = client.hello_application().await?;
+                print_json(&response)?;
+            }
+        },
         Command::Users { command } => match command {
             UsersCommand::List => {
                 let response = client.list_users().await?;
