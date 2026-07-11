@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OPSD_RUST_REV: b7df1f0e0cec07864e83f3cdeb79230f823f0f13
+
+jobs:
+  build:
+    name: Build release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out ops
+        uses: actions/checkout@v6
+        with:
+          path: ops
+          persist-credentials: false
+
+      - name: Check out pinned opsd-rust
+        uses: actions/checkout@v6
+        with:
+          repository: opsd-sh/opsd-rust
+          ref: ${{ env.OPSD_RUST_REV }}
+          token: ${{ secrets.OPSD_RUST_TOKEN }}
+          path: opsd-rust
+          persist-credentials: false
+
+      - name: Build and test
+        working-directory: ops
+        run: |
+          cargo test --locked
+          cargo build --release --locked
