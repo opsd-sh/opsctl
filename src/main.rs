@@ -1,4 +1,7 @@
-use clap::{Parser, Subcommand, builder::styling::AnsiColor};
+use std::io;
+
+use clap::{CommandFactory, Parser, Subcommand, builder::styling::AnsiColor};
+use clap_complete::{Shell, generate};
 use opsd_rust::{CreateUserRequest, OpsdClient};
 use serde::Serialize;
 use url::Url;
@@ -17,6 +20,11 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Generate shell completion scripts.
+    Completions {
+        /// Shell to generate completions for.
+        shell: Shell,
+    },
     /// Call hello endpoints.
     Hello {
         #[command(subcommand)]
@@ -71,6 +79,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match cli.command {
+        Command::Completions { shell } => {
+            let mut command = Cli::command();
+            let bin_name = command.get_name().to_string();
+            generate(shell, &mut command, bin_name, &mut io::stdout());
+        }
         Command::Hello { command } => match command {
             HelloCommand::World => {
                 let response = client.hello_world().await?;

@@ -2,6 +2,34 @@
 
 CLI for the Opsd API.
 
+## Installation
+
+On macOS or Linux, install the latest release with:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://downloads.opsd.sh/ops/install.sh | sh
+```
+
+The installer places `ops` in `~/.local/bin` and explains how to add that
+directory to `PATH` if needed.
+
+### Shell completions
+
+Add the command for your shell to its startup file:
+
+```sh
+# Bash: ~/.bashrc
+eval "$(ops completions bash)"
+
+# Zsh: ~/.zshrc
+source <(ops completions zsh)
+
+# Fish: ~/.config/fish/config.fish
+ops completions fish | source
+```
+
+Open a new terminal after updating the startup file.
+
 ## Releasing
 
 Releases are built from the private `ops` and `opsd-rust` repositories and
