@@ -101,7 +101,10 @@ jobs:
           dist build \
             --artifacts=local \
             --target="${{ matrix.target }}" \
-            --tag="${{ needs.test.outputs.release_tag }}"
+            --tag="${{ needs.test.outputs.release_tag }}" \
+            --output-format=json > dist-manifest.json
+          cp dist-manifest.json \
+            "target/distrib/${{ matrix.target }}-dist-manifest.json"
 
       - name: Upload release archive
         uses: actions/upload-artifact@v4
@@ -110,6 +113,7 @@ jobs:
           path: |
             ops/target/distrib/ops-${{ matrix.target }}.tar.xz
             ops/target/distrib/ops-${{ matrix.target }}.tar.xz.sha256
+            ops/target/distrib/${{ matrix.target }}-dist-manifest.json
           if-no-files-found: error
 
   package:
@@ -145,7 +149,8 @@ jobs:
         run: |
           dist build \
             --artifacts=global \
-            --tag="${{ needs.test.outputs.release_tag }}"
+            --tag="${{ needs.test.outputs.release_tag }}" \
+            --output-format=json > dist-manifest.json
 
       - name: Upload complete release
         uses: actions/upload-artifact@v4
@@ -190,6 +195,11 @@ jobs:
           aws s3 cp ops/target/distrib \
             "s3://${BUCKET}/ops/releases/${RELEASE_TAG}/" \
             --recursive \
+            --exclude "*" \
+            --include "*.tar.xz" \
+            --include "*.tar.xz.sha256" \
+            --include "ops-installer.sh" \
+            --include "sha256.sum" \
             --cache-control "public,max-age=31536000,immutable"
 
           aws s3 cp ops/target/distrib/ops-installer.sh \
