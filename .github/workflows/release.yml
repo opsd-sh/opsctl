@@ -9,13 +9,12 @@ on:
 permissions:
   contents: read
 
-env:
-  OPSD_RUST_REV: b7df1f0e0cec07864e83f3cdeb79230f823f0f13
-
 jobs:
-  build:
-    name: Build release
-    runs-on: ubuntu-latest
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
 
     steps:
       - name: Check out ops
@@ -24,17 +23,188 @@ jobs:
           path: ops
           persist-credentials: false
 
-      - name: Check out pinned opsd-rust
-        uses: actions/checkout@v6
+      - name: Set up private dependency
+        uses: ./ops/.github/actions/setup-release
         with:
-          repository: opsd-sh/opsd-rust
-          ref: ${{ env.OPSD_RUST_REV }}
-          token: ${{ secrets.OPSD_RUST_TOKEN }}
-          path: opsd-rust
-          persist-credentials: false
+          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
 
-      - name: Build and test
+      - name: Select release tag
+        id: release
         working-directory: ops
         run: |
-          cargo test --locked
-          cargo build --release --locked
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "ops") | .version')"
+            tag="v${version}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        working-directory: ops
+        run: cargo test --locked
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+            install_musl: false
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            install_musl: true
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+            install_musl: false
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+            install_musl: true
+
+    steps:
+      - name: Check out ops
+        uses: actions/checkout@v6
+        with:
+          path: ops
+          persist-credentials: false
+
+      - name: Set up release build
+        uses: ./ops/.github/actions/setup-release
+        with:
+          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
+          install-dist: "true"
+
+      - name: Install musl toolchain
+        if: ${{ matrix.install_musl }}
+        run: sudo apt-get update && sudo apt-get install --yes musl-tools
+
+      - name: Configure musl compiler
+        if: ${{ matrix.install_musl }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          target_key="${TARGET//-/_}"
+          echo "CC_${target_key}=musl-gcc" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_${target_key^^}_LINKER=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Install Rust target
+        run: rustup target add "${{ matrix.target }}"
+
+      - name: Build release archive
+        working-directory: ops
+        run: |
+          dist build \
+            --artifacts=local \
+            --target="${{ matrix.target }}" \
+            --tag="${{ needs.test.outputs.release_tag }}"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            ops/target/distrib/ops-${{ matrix.target }}.tar.xz
+            ops/target/distrib/ops-${{ matrix.target }}.tar.xz.sha256
+          if-no-files-found: error
+
+  package:
+    name: Package and publish
+    needs: [test, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out ops
+        uses: actions/checkout@v6
+        with:
+          path: ops
+          persist-credentials: false
+
+      - name: Set up release build
+        uses: ./ops/.github/actions/setup-release
+        with:
+          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
+          install-dist: "true"
+
+      - name: Download release archives
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-*
+          path: ops/target/distrib
+          merge-multiple: true
+
+      - name: Build installer and unified checksum
+        working-directory: ops
+        run: |
+          dist build \
+            --artifacts=global \
+            --tag="${{ needs.test.outputs.release_tag }}"
+
+      - name: Upload complete release
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            ops/target/distrib/*.tar.xz
+            ops/target/distrib/*.tar.xz.sha256
+            ops/target/distrib/ops-installer.sh
+            ops/target/distrib/sha256.sum
+          if-no-files-found: error
+
+      - name: Configure AWS credentials
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-region: eu-west-2
+          role-to-assume: arn:aws:iam::091833700814:role/github-ops-release
+          role-session-name: github-actions-ops-release
+
+      - name: Read release destination
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        id: destination
+        run: |
+          bucket="$(aws ssm get-parameter \
+            --name /opsd/ops/release/bucket_name \
+            --query Parameter.Value \
+            --output text)"
+          distribution="$(aws ssm get-parameter \
+            --name /opsd/ops/release/cloudfront_distribution_id \
+            --query Parameter.Value \
+            --output text)"
+          echo "bucket=${bucket}" >> "$GITHUB_OUTPUT"
+          echo "distribution=${distribution}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          BUCKET: ${{ steps.destination.outputs.bucket }}
+          RELEASE_TAG: ${{ needs.test.outputs.release_tag }}
+        run: |
+          aws s3 cp ops/target/distrib \
+            "s3://${BUCKET}/ops/releases/${RELEASE_TAG}/" \
+            --recursive \
+            --cache-control "public,max-age=31536000,immutable"
+
+          aws s3 cp ops/target/distrib/ops-installer.sh \
+            "s3://${BUCKET}/ops/install.sh" \
+            --cache-control "public,max-age=300" \
+            --content-type "text/x-shellscript"
+
+          jq -n --arg tag "$RELEASE_TAG" '{tag: $tag}' > latest.json
+          aws s3 cp latest.json "s3://${BUCKET}/ops/latest.json" \
+            --cache-control "public,max-age=300" \
+            --content-type "application/json"
+
+      - name: Invalidate mutable downloads
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ steps.destination.outputs.distribution }}" \
+            --paths /ops/install.sh /ops/latest.json
