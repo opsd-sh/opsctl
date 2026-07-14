@@ -9,11 +9,21 @@ publish = false
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
 clap_complete = "4.5"
+hostname = "0.4.1"
 opsd-rust = { path = "../opsd-rust" }
+reqwest = { version = "0.12.24", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
-url = "2.5.7"
+thiserror = "2.0.17"
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time"] }
+url = { version = "2.5.7", features = ["serde"] }
+webbrowser = "1.0.6"
+
+[dev-dependencies]
+tempfile = "3.23.0"
 
 [profile.dist]
 inherits = "release"

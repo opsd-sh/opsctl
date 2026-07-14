@@ -2,6 +2,41 @@
 
 CLI for the Opsd API.
 
+## Authentication
+
+Sign in before calling the public API:
+
+```sh
+ops auth login
+```
+
+The CLI starts an OAuth device authorization, attempts to open the Opsd
+website, and also prints the verification URL and user code for terminals that
+cannot open a browser. The command waits until the website approval completes.
+
+Inspect or remove the saved login with:
+
+```sh
+ops auth status
+ops auth logout
+```
+
+Logout revokes the OAuth access token on the server before removing the local
+credential. If revocation fails, the credential is retained so logout can be
+retried.
+
+The opaque access token is stored in `~/.config/opsd/credentials.json`. The
+directory and file are restricted to the current user with Unix permissions
+`0700` and `0600`. Set `OPSD_CONFIG_DIR` to use a different directory.
+
+Credentials are tied to the server that issued them. For local development,
+pass the same server URL when logging in and making later requests:
+
+```sh
+ops --base-url http://localhost:8080 auth login
+ops --base-url http://localhost:8080 hello world
+```
+
 ## Installation
 
 On macOS or Linux, install the latest release with:
