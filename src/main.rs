@@ -11,6 +11,7 @@ mod auth;
 #[derive(Debug, Parser)]
 #[command(name = "ops")]
 #[command(about = "CLI for the Opsd API")]
+#[command(version)]
 struct Cli {
     /// Override the default Opsd server URL.
     #[arg(long)]
