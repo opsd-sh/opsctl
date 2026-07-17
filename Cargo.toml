@@ -1,6 +1,6 @@
 [package]
 name = "ops"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "CLI for the Opsd API"
 repository = "https://github.com/opsd-sh/ops"
