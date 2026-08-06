@@ -17,31 +17,31 @@ jobs:
       release_tag: ${{ steps.release.outputs.tag }}
 
     steps:
-      - name: Check out ops
+      - name: Check out opsctl
         uses: actions/checkout@v6
         with:
-          path: ops
+          path: opsctl
           persist-credentials: false
 
       - name: Set up private dependency
-        uses: ./ops/.github/actions/setup-release
+        uses: ./opsctl/.github/actions/setup-release
         with:
           opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
 
       - name: Select release tag
         id: release
-        working-directory: ops
+        working-directory: opsctl
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             tag="$GITHUB_REF_NAME"
           else
-            version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "ops") | .version')"
+            version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "opsctl") | .version')"
             tag="v${version}"
           fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Test
-        working-directory: ops
+        working-directory: opsctl
         run: cargo test --locked
 
   build:
@@ -67,14 +67,14 @@ jobs:
             install_musl: true
 
     steps:
-      - name: Check out ops
+      - name: Check out opsctl
         uses: actions/checkout@v6
         with:
-          path: ops
+          path: opsctl
           persist-credentials: false
 
       - name: Set up release build
-        uses: ./ops/.github/actions/setup-release
+        uses: ./opsctl/.github/actions/setup-release
         with:
           opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
           install-dist: "true"
@@ -96,7 +96,7 @@ jobs:
         run: rustup target add "${{ matrix.target }}"
 
       - name: Build release archive
-        working-directory: ops
+        working-directory: opsctl
         run: |
           dist build \
             --artifacts=local \
@@ -111,9 +111,9 @@ jobs:
         with:
           name: release-${{ matrix.target }}
           path: |
-            ops/target/distrib/ops-${{ matrix.target }}.tar.xz
-            ops/target/distrib/ops-${{ matrix.target }}.tar.xz.sha256
-            ops/target/distrib/${{ matrix.target }}-dist-manifest.json
+            opsctl/target/distrib/opsctl-${{ matrix.target }}.tar.xz
+            opsctl/target/distrib/opsctl-${{ matrix.target }}.tar.xz.sha256
+            opsctl/target/distrib/${{ matrix.target }}-dist-manifest.json
           if-no-files-found: error
 
   package:
@@ -125,14 +125,14 @@ jobs:
       id-token: write
 
     steps:
-      - name: Check out ops
+      - name: Check out opsctl
         uses: actions/checkout@v6
         with:
-          path: ops
+          path: opsctl
           persist-credentials: false
 
       - name: Set up release build
-        uses: ./ops/.github/actions/setup-release
+        uses: ./opsctl/.github/actions/setup-release
         with:
           opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
           install-dist: "true"
@@ -141,11 +141,11 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           pattern: release-*
-          path: ops/target/distrib
+          path: opsctl/target/distrib
           merge-multiple: true
 
       - name: Build installer and unified checksum
-        working-directory: ops
+        working-directory: opsctl
         run: |
           dist build \
             --artifacts=global \
@@ -157,10 +157,10 @@ jobs:
         with:
           name: release
           path: |
-            ops/target/distrib/*.tar.xz
-            ops/target/distrib/*.tar.xz.sha256
-            ops/target/distrib/ops-installer.sh
-            ops/target/distrib/sha256.sum
+            opsctl/target/distrib/*.tar.xz
+            opsctl/target/distrib/*.tar.xz.sha256
+            opsctl/target/distrib/opsctl-installer.sh
+            opsctl/target/distrib/sha256.sum
           if-no-files-found: error
 
       - name: Configure AWS credentials
@@ -168,19 +168,19 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           aws-region: eu-west-2
-          role-to-assume: arn:aws:iam::091833700814:role/github-ops-release
-          role-session-name: github-actions-ops-release
+          role-to-assume: arn:aws:iam::091833700814:role/github-opsctl-release
+          role-session-name: github-actions-opsctl-release
 
       - name: Read release destination
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         id: destination
         run: |
           bucket="$(aws ssm get-parameter \
-            --name /opsd/ops/release/bucket_name \
+            --name /opsd/opsctl/release/bucket_name \
             --query Parameter.Value \
             --output text)"
           distribution="$(aws ssm get-parameter \
-            --name /opsd/ops/release/cloudfront_distribution_id \
+            --name /opsd/opsctl/release/cloudfront_distribution_id \
             --query Parameter.Value \
             --output text)"
           echo "bucket=${bucket}" >> "$GITHUB_OUTPUT"
@@ -192,23 +192,23 @@ jobs:
           BUCKET: ${{ steps.destination.outputs.bucket }}
           RELEASE_TAG: ${{ needs.test.outputs.release_tag }}
         run: |
-          aws s3 cp ops/target/distrib \
-            "s3://${BUCKET}/ops/releases/${RELEASE_TAG}/" \
+          aws s3 cp opsctl/target/distrib \
+            "s3://${BUCKET}/opsctl/releases/${RELEASE_TAG}/" \
             --recursive \
             --exclude "*" \
             --include "*.tar.xz" \
             --include "*.tar.xz.sha256" \
-            --include "ops-installer.sh" \
+            --include "opsctl-installer.sh" \
             --include "sha256.sum" \
             --cache-control "public,max-age=31536000,immutable"
 
-          aws s3 cp ops/target/distrib/ops-installer.sh \
-            "s3://${BUCKET}/ops/install.sh" \
+          aws s3 cp opsctl/target/distrib/opsctl-installer.sh \
+            "s3://${BUCKET}/opsctl/install.sh" \
             --cache-control "public,max-age=300" \
             --content-type "text/x-shellscript"
 
           jq -n --arg tag "$RELEASE_TAG" '{tag: $tag}' > latest.json
-          aws s3 cp latest.json "s3://${BUCKET}/ops/latest.json" \
+          aws s3 cp latest.json "s3://${BUCKET}/opsctl/latest.json" \
             --cache-control "public,max-age=300" \
             --content-type "application/json"
 
@@ -217,4 +217,4 @@ jobs:
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ steps.destination.outputs.distribution }}" \
-            --paths /ops/install.sh /ops/latest.json
+            --paths /opsctl/install.sh /opsctl/latest.json

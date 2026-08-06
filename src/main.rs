@@ -9,7 +9,7 @@ use url::Url;
 mod auth;
 
 #[derive(Debug, Parser)]
-#[command(name = "ops")]
+#[command(name = "opsctl")]
 #[command(about = "CLI for the Opsd API")]
 #[command(version)]
 struct Cli {

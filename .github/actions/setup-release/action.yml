@@ -16,7 +16,7 @@ runs:
     - name: Read pinned opsd-rust revision
       id: sdk
       shell: bash
-      run: echo "revision=$(tr -d '[:space:]' < ops/opsd-rust.rev)" >> "$GITHUB_OUTPUT"
+      run: echo "revision=$(tr -d '[:space:]' < opsctl/opsd-rust.rev)" >> "$GITHUB_OUTPUT"
 
     - name: Check out pinned opsd-rust
       uses: actions/checkout@v6
@@ -33,7 +33,7 @@ runs:
       env:
         CARGO_DIST_NO_MODIFY_PATH: "1"
       run: |
-        version="$(awk -F '"' '/^cargo-dist-version = / { print $2 }' ops/dist-workspace.toml)"
+        version="$(awk -F '"' '/^cargo-dist-version = / { print $2 }' opsctl/dist-workspace.toml)"
         test -n "$version"
         curl --proto '=https' --tlsv1.2 -LsSf \
           "https://github.com/axodotdev/cargo-dist/releases/download/v${version}/cargo-dist-installer.sh" \

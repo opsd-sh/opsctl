@@ -1,14 +1,15 @@
 [package]
-name = "ops"
-version = "0.2.0"
+name = "opsctl"
+version = "0.3.0"
 edition = "2024"
 description = "CLI for the Opsd API"
-repository = "https://github.com/opsd-sh/ops"
+repository = "https://github.com/opsd-sh/opsctl"
 publish = false
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
 clap_complete = "4.5"
+dirs = "6.0"
 hostname = "0.4.1"
 opsd-rust = { path = "../opsd-rust" }
 reqwest = { version = "0.12.24", default-features = false, features = [

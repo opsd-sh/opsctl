@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use url::Url;
 
-const CLIENT_ID: &str = "opsd-cli";
+const CLIENT_ID: &str = "opsctl";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const TOKEN_TYPE_HINT: &str = "access_token";
 const MAX_DEVICE_NAME_CHARACTERS: usize = 80;
@@ -42,11 +42,11 @@ pub(crate) enum AuthError {
     InvalidCredentials { path: PathBuf },
     #[error("saved CLI credentials at `{path}` must not be accessible by other users")]
     InsecureCredentialPermissions { path: PathBuf },
-    #[error("not logged in; run `ops auth login`")]
+    #[error("not logged in; run `opsctl auth login`")]
     NotLoggedIn,
-    #[error("the saved login is for {saved}; run `ops auth login` for {requested}")]
+    #[error("the saved login is for {saved}; run `opsctl auth login` for {requested}")]
     ServerMismatch { saved: String, requested: String },
-    #[error("the saved login has expired; run `ops auth login`")]
+    #[error("the saved login has expired; run `opsctl auth login`")]
     CredentialsExpired,
     #[error("OAuth request failed: {0}")]
     Transport(#[from] reqwest::Error),
@@ -57,7 +57,7 @@ pub(crate) enum AuthError {
     },
     #[error("OAuth request was rejected: {0}")]
     Protocol(String),
-    #[error("the device authorization expired; run `ops auth login` again")]
+    #[error("the device authorization expired; run `opsctl auth login` again")]
     DeviceAuthorizationExpired,
     #[error("the OAuth server returned an unsupported token type")]
     UnsupportedTokenType,
@@ -328,7 +328,7 @@ fn device_name() -> String {
         .ok()
         .and_then(|name| name.into_string().ok())
         .and_then(|name| normalize_device_name(&name))
-        .unwrap_or_else(|| format!("Ops CLI on {}", std::env::consts::OS))
+        .unwrap_or_else(|| format!("Opsd CLI on {}", std::env::consts::OS))
 }
 
 fn normalize_device_name(name: &str) -> Option<String> {
@@ -420,15 +420,20 @@ fn save_credentials(server_url: &ServerUrl, token: &TokenResponse) -> Result<(),
 }
 
 fn credentials_path() -> Result<PathBuf, AuthError> {
-    if let Some(directory) = env::var_os("OPSD_CONFIG_DIR") {
-        return Ok(PathBuf::from(directory).join("credentials.json"));
+    let override_directory = env::var_os("OPSCTL_CONFIG_DIR").map(PathBuf::from);
+    credentials_path_from(override_directory, dirs::config_dir())
+}
+
+fn credentials_path_from(
+    override_directory: Option<PathBuf>,
+    platform_config_directory: Option<PathBuf>,
+) -> Result<PathBuf, AuthError> {
+    if let Some(directory) = override_directory {
+        return Ok(directory.join("credentials.json"));
     }
 
-    let home = env::var_os("HOME").ok_or(AuthError::ConfigDirectoryUnavailable)?;
-    Ok(PathBuf::from(home)
-        .join(".config")
-        .join("opsd")
-        .join("credentials.json"))
+    let directory = platform_config_directory.ok_or(AuthError::ConfigDirectoryUnavailable)?;
+    Ok(directory.join("opsctl").join("credentials.json"))
 }
 
 fn load_credentials_from(path: &Path) -> Result<Option<StoredCredentials>, AuthError> {
@@ -533,12 +538,12 @@ fn unix_timestamp() -> Result<u64, AuthError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessToken, AuthError, PollAction, ServerUrl, StoredCredentials, load_credentials_from,
-        normalize_device_name, poll_action, save_credentials_to,
+        AccessToken, AuthError, PollAction, ServerUrl, StoredCredentials, credentials_path_from,
+        load_credentials_from, normalize_device_name, poll_action, save_credentials_to,
     };
-    use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use std::{fs, path::PathBuf};
     use tempfile::tempdir;
     use url::Url;
 
@@ -607,6 +612,40 @@ mod tests {
         assert!(normalize_device_name("line\nbreak").is_none());
         assert!(normalize_device_name("   ").is_none());
         assert!(normalize_device_name(&"a".repeat(81)).is_none());
+    }
+
+    #[test]
+    fn credentials_use_the_opsctl_platform_config_directory() {
+        let path = credentials_path_from(None, Some(PathBuf::from("platform-config"))).unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("platform-config")
+                .join("opsctl")
+                .join("credentials.json")
+        );
+    }
+
+    #[test]
+    fn credentials_config_override_replaces_the_platform_directory() {
+        let path = credentials_path_from(
+            Some(PathBuf::from("override-config")),
+            Some(PathBuf::from("platform-config")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            path,
+            PathBuf::from("override-config").join("credentials.json")
+        );
+    }
+
+    #[test]
+    fn credentials_require_a_config_directory() {
+        assert!(matches!(
+            credentials_path_from(None, None),
+            Err(AuthError::ConfigDirectoryUnavailable)
+        ));
     }
 
     #[test]

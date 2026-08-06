@@ -12,6 +12,6 @@ targets = [
   "x86_64-unknown-linux-musl",
 ]
 hosting = ["simple", "github"]
-simple-download-url = "https://downloads.opsd.sh/ops/releases/{tag}"
+simple-download-url = "https://downloads.opsd.sh/opsctl/releases/{tag}"
 source-tarball = false
 install-path = "~/.local/bin"
