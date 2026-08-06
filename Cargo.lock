@@ -712,7 +712,7 @@ dependencies = [
  "clap_complete",
  "dirs",
  "hostname",
- "opsd-rust",
+ "opsd",
  "reqwest",
  "serde",
  "serde_json",
@@ -724,8 +724,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "opsd-rust"
+name = "opsd"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04c20604ce55dc94ec580d388086958c082aa399593226e1fdbe40c2403eaa02"
 dependencies = [
  "reqwest",
  "serde",

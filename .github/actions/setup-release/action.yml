@@ -1,10 +1,7 @@
 name: Set up release build
-description: Check out the pinned private SDK and optionally install dist
+description: Install the dist version pinned in dist-workspace.toml
 
 inputs:
-  opsd-rust-token:
-    description: Token with read access to opsd-sh/opsd-rust
-    required: true
   install-dist:
     description: Whether to install the dist version pinned in dist-workspace.toml
     required: false
@@ -13,20 +10,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Read pinned opsd-rust revision
-      id: sdk
-      shell: bash
-      run: echo "revision=$(tr -d '[:space:]' < opsctl/opsd-rust.rev)" >> "$GITHUB_OUTPUT"
-
-    - name: Check out pinned opsd-rust
-      uses: actions/checkout@v6
-      with:
-        repository: opsd-sh/opsd-rust
-        ref: ${{ steps.sdk.outputs.revision }}
-        token: ${{ inputs.opsd-rust-token }}
-        path: opsd-rust
-        persist-credentials: false
-
     - name: Install dist
       if: ${{ inputs.install-dist == 'true' }}
       shell: bash

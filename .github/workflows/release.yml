@@ -23,11 +23,6 @@ jobs:
           path: opsctl
           persist-credentials: false
 
-      - name: Set up private dependency
-        uses: ./opsctl/.github/actions/setup-release
-        with:
-          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
-
       - name: Select release tag
         id: release
         working-directory: opsctl
@@ -76,7 +71,6 @@ jobs:
       - name: Set up release build
         uses: ./opsctl/.github/actions/setup-release
         with:
-          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
           install-dist: "true"
 
       - name: Install musl toolchain
@@ -134,7 +128,6 @@ jobs:
       - name: Set up release build
         uses: ./opsctl/.github/actions/setup-release
         with:
-          opsd-rust-token: ${{ secrets.OPSD_RUST_TOKEN }}
           install-dist: "true"
 
       - name: Download release archives

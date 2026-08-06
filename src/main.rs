@@ -2,7 +2,7 @@ use std::io;
 
 use clap::{CommandFactory, Parser, Subcommand, builder::styling::AnsiColor};
 use clap_complete::{Shell, generate};
-use opsd_rust::{ApiCredential, CreateUserRequest, OpsdClient};
+use opsd::{ApiCredential, CreateUserRequest, OpsdClient};
 use serde::Serialize;
 use url::Url;
 

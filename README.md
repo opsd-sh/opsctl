@@ -70,26 +70,21 @@ Open a new terminal after updating the startup file.
 
 ## Releasing
 
-Releases are built from the private `opsctl` and `opsd-rust` repositories and
-published as public binaries at `downloads.opsd.sh`.
+Releases are built from the `opsctl` repository and published as public
+binaries at `downloads.opsd.sh`.
 
 ### Release inputs
 
 - `Cargo.toml` contains the CLI version.
+- `Cargo.lock` pins the exact versions of dependencies, including `opsd`.
 - `dist-workspace.toml` defines release targets, archives, and the installer.
-- `opsd-rust.rev` pins the exact `opsd-rust` revision.
-- The `OPSD_RUST_TOKEN` Actions secret grants read-only access to the private
-  `opsd-rust` repository.
-
-Update the pinned SDK revision whenever a release needs newer SDK code. Release
-builds intentionally do not follow the SDK's default branch.
 
 ### Validate without publishing
 
 Run the `Release` workflow manually from GitHub Actions. Manual runs test and
-package all configured targets. This exercises the private `opsd-rust`
-checkout, each native GitHub runner, the Linux musl toolchains, and `dist`
-installer generation before creating an immutable release tag.
+package all configured targets. This exercises each native GitHub runner, the
+Linux musl toolchains, and `dist` installer generation before creating an
+immutable release tag.
 
 The resulting archives, checksums, and installer are saved as a temporary
 GitHub Actions artifact named `release`, where they can be inspected or

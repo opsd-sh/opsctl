@@ -12,7 +12,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 clap_complete = "4.5"
 dirs = "6.0"
 hostname = "0.4.1"
-opsd-rust = { path = "../opsd-rust" }
+opsd = "0.1.0"
 reqwest = { version = "0.12.24", default-features = false, features = [
   "json",
   "rustls-tls",
