@@ -137,3 +137,8 @@ https://downloads.opsd.sh/opsctl/latest.json
 
 The AWS release role trusts only `v*` tag workflows, so manual workflow runs
 cannot publish artifacts.
+
+## License
+
+Licensed under either the Apache License, Version 2.0 or the MIT license, at
+your option.
