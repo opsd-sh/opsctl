@@ -51,6 +51,12 @@ curl --proto '=https' --tlsv1.2 -LsSf https://downloads.opsd.sh/opsctl/install.s
 The installer places `opsctl` in `~/.local/bin` and explains how to add that
 directory to `PATH` if needed.
 
+Rust developers can instead build and install the CLI from crates.io:
+
+```sh
+cargo install --locked opsctl
+```
+
 ### Shell completions
 
 Add the command for your shell to its startup file:

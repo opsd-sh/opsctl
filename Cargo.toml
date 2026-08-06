@@ -2,10 +2,16 @@
 name = "opsctl"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.86"
 description = "CLI for the Opsd API"
+homepage = "https://opsd.sh"
 repository = "https://github.com/opsd-sh/opsctl"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
-publish = false
+keywords = ["opsd", "cli", "operations", "business"]
+categories = ["command-line-utilities"]
+publish = ["crates-io"]
+exclude = [".github/**", "dist-workspace.toml"]
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
