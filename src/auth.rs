@@ -328,7 +328,7 @@ fn device_name() -> String {
         .ok()
         .and_then(|name| name.into_string().ok())
         .and_then(|name| normalize_device_name(&name))
-        .unwrap_or_else(|| format!("Opsd CLI on {}", std::env::consts::OS))
+        .unwrap_or_else(|| format!("opsctl on {}", std::env::consts::OS))
 }
 
 fn normalize_device_name(name: &str) -> Option<String> {
