@@ -119,14 +119,14 @@ dist plan
 3. Create and push a matching version tag:
 
    ```sh
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.3.1
+   git push origin v0.3.1
    ```
 
 The tag-triggered workflow publishes immutable artifacts below:
 
 ```text
-https://downloads.opsd.sh/opsctl/releases/v0.3.0/
+https://downloads.opsd.sh/opsctl/releases/v0.3.1/
 ```
 
 After all versioned artifacts are uploaded, it updates:
