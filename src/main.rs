@@ -7,6 +7,7 @@ use serde::Serialize;
 use url::Url;
 
 mod auth;
+mod website;
 
 #[derive(Debug, Parser)]
 #[command(name = "opsctl")]
@@ -16,6 +17,9 @@ struct Cli {
     /// Override the default Opsd server URL.
     #[arg(long)]
     base_url: Option<Url>,
+    /// Override the default Opsd website URL.
+    #[arg(long)]
+    website_url: Option<Url>,
 
     #[command(subcommand)]
     command: Command,
@@ -27,6 +31,11 @@ enum Command {
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
+    },
+    /// Manage businesses.
+    Businesses {
+        #[command(subcommand)]
+        command: BusinessesCommand,
     },
     /// Generate shell completion scripts.
     Completions {
@@ -42,6 +51,24 @@ enum Command {
     Users {
         #[command(subcommand)]
         command: UsersCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BusinessesCommand {
+    /// Manage billing for a business.
+    Billing {
+        #[command(subcommand)]
+        command: BusinessBillingCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BusinessBillingCommand {
+    /// Open the website to set up billing details.
+    Setup {
+        /// Public ID of the business to configure.
+        business_id: String,
     },
 }
 
@@ -95,12 +122,23 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Some(base_url) => auth::ServerUrl::from_override(base_url)?,
         None => auth::ServerUrl::production(),
     };
+    let website_url = match cli.website_url {
+        Some(website_url) => website::WebsiteUrl::from_override(website_url)?,
+        None => website::WebsiteUrl::production(),
+    };
 
     match cli.command {
         Command::Auth { command } => match command {
             AuthCommand::Login => auth::login(&server_url).await?,
             AuthCommand::Status => auth::print_status(&server_url)?,
             AuthCommand::Logout => auth::logout(&server_url).await?,
+        },
+        Command::Businesses { command } => match command {
+            BusinessesCommand::Billing { command } => match command {
+                BusinessBillingCommand::Setup { business_id } => {
+                    website::open_billing_setup(&website_url, &business_id);
+                }
+            },
         },
         Command::Completions { shell } => {
             let mut command = Cli::command();
