@@ -221,6 +221,7 @@ mod tests {
             vec!["opsctl", "businesses", "create", "--name", "Acme Ltd"],
             vec!["opsctl", "businesses", "get", BUSINESS_ID],
             vec!["opsctl", "businesses", "billing", "setup", BUSINESS_ID],
+            vec!["opsctl", "businesses", "billing", "status", BUSINESS_ID],
             vec!["opsctl", "businesses", "members", "list", BUSINESS_ID],
             vec![
                 "opsctl",

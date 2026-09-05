@@ -1,13 +1,9 @@
 //! Commands for businesses and resources that administer business access.
 
 use clap::{Subcommand, ValueEnum};
-use opsd::{
-    OpsdClient,
-    types::{
-        BusinessId, BusinessInvitationId, BusinessName, BusinessRole,
-        CreateBusinessInvitationRequest, CreateBusinessRequest, EmailAddress,
-        UpdateBusinessMemberRequest, UserId,
-    },
+use opsd::types::{
+    BusinessId, BusinessInvitationId, BusinessName, BusinessRole, CreateBusinessInvitationRequest,
+    CreateBusinessRequest, EmailAddress, UpdateBusinessMemberRequest, UserId,
 };
 
 use crate::{
@@ -50,6 +46,13 @@ pub(crate) enum BusinessesCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum BusinessBillingCommand {
+    /// Check whether payment setup has been confirmed for the business.
+    /// Requires business administrator access and prints the result as JSON.
+    /// Confirmation does not guarantee that a future charge will succeed.
+    Status {
+        /// Public ID of the business.
+        business_id: BusinessId,
+    },
     /// Open the website to set up billing details.
     Setup {
         /// Public ID of the business to configure.
@@ -131,89 +134,90 @@ pub(crate) async fn execute(
     server_url: &ServerUrl,
     website_url: &WebsiteUrl,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let BusinessesCommand::Billing { command } = command {
-        match command {
+    match command {
+        BusinessesCommand::List => {
+            let client = authenticated_client(server_url)?;
+            print_json(&client.list_businesses().await?)?;
+        }
+        BusinessesCommand::Create { name } => {
+            let client = authenticated_client(server_url)?;
+            print_json(
+                &client
+                    .create_business(&CreateBusinessRequest { name })
+                    .await?,
+            )?;
+        }
+        BusinessesCommand::Get { business_id } => {
+            let client = authenticated_client(server_url)?;
+            print_json(&client.get_business(business_id).await?)?
+        }
+        BusinessesCommand::Members { command } => {
+            let client = authenticated_client(server_url)?;
+            match command {
+                BusinessMembersCommand::List { business_id } => {
+                    print_json(&client.list_business_members(business_id).await?)?
+                }
+                BusinessMembersCommand::Update {
+                    business_id,
+                    user_id,
+                    role,
+                } => {
+                    client
+                        .update_business_member(
+                            business_id,
+                            user_id,
+                            &UpdateBusinessMemberRequest { role: role.into() },
+                        )
+                        .await?;
+                }
+                BusinessMembersCommand::Remove {
+                    business_id,
+                    user_id,
+                } => client.remove_business_member(business_id, user_id).await?,
+            }
+        }
+        BusinessesCommand::Invitations { command } => {
+            let client = authenticated_client(server_url)?;
+            match command {
+                OutgoingBusinessInvitationsCommand::List { business_id } => print_json(
+                    &client
+                        .list_outgoing_business_invitations(business_id)
+                        .await?,
+                )?,
+                OutgoingBusinessInvitationsCommand::Create {
+                    business_id,
+                    email,
+                    role,
+                } => print_json(
+                    &client
+                        .create_business_invitation(
+                            business_id,
+                            &CreateBusinessInvitationRequest {
+                                email,
+                                role: role.into(),
+                            },
+                        )
+                        .await?,
+                )?,
+                OutgoingBusinessInvitationsCommand::Cancel {
+                    business_id,
+                    invitation_id,
+                } => {
+                    client
+                        .cancel_business_invitation(business_id, invitation_id)
+                        .await?;
+                }
+            }
+        }
+        BusinessesCommand::Billing { command } => match command {
+            BusinessBillingCommand::Status { business_id } => {
+                let client = authenticated_client(server_url)?;
+                print_json(&client.get_billing_status(business_id).await?)?
+            }
             BusinessBillingCommand::Setup { business_id } => {
                 website::open_billing_setup(website_url, &business_id.to_string());
             }
-        }
-        return Ok(());
-    }
-
-    let client = authenticated_client(server_url)?;
-    execute_api_command(&client, command).await
-}
-
-/// Executes a business command against the authenticated public API.
-async fn execute_api_command(
-    client: &OpsdClient,
-    command: BusinessesCommand,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match command {
-        BusinessesCommand::List => print_json(&client.list_businesses().await?)?,
-        BusinessesCommand::Create { name } => print_json(
-            &client
-                .create_business(&CreateBusinessRequest { name })
-                .await?,
-        )?,
-        BusinessesCommand::Get { business_id } => {
-            print_json(&client.get_business(business_id).await?)?
-        }
-        BusinessesCommand::Members { command } => match command {
-            BusinessMembersCommand::List { business_id } => {
-                print_json(&client.list_business_members(business_id).await?)?
-            }
-            BusinessMembersCommand::Update {
-                business_id,
-                user_id,
-                role,
-            } => {
-                client
-                    .update_business_member(
-                        business_id,
-                        user_id,
-                        &UpdateBusinessMemberRequest { role: role.into() },
-                    )
-                    .await?;
-            }
-            BusinessMembersCommand::Remove {
-                business_id,
-                user_id,
-            } => client.remove_business_member(business_id, user_id).await?,
         },
-        BusinessesCommand::Invitations { command } => match command {
-            OutgoingBusinessInvitationsCommand::List { business_id } => print_json(
-                &client
-                    .list_outgoing_business_invitations(business_id)
-                    .await?,
-            )?,
-            OutgoingBusinessInvitationsCommand::Create {
-                business_id,
-                email,
-                role,
-            } => print_json(
-                &client
-                    .create_business_invitation(
-                        business_id,
-                        &CreateBusinessInvitationRequest {
-                            email,
-                            role: role.into(),
-                        },
-                    )
-                    .await?,
-            )?,
-            OutgoingBusinessInvitationsCommand::Cancel {
-                business_id,
-                invitation_id,
-            } => {
-                client
-                    .cancel_business_invitation(business_id, invitation_id)
-                    .await?;
-            }
-        },
-        BusinessesCommand::Billing { .. } => {
-            unreachable!("billing commands are handled before API authentication")
-        }
     }
 
     Ok(())
