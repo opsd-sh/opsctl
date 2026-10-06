@@ -1,5 +1,5 @@
 name: Set up release build
-description: Install the dist version pinned in dist-workspace.toml
+description: Install the release Rust toolchain and optionally the pinned dist version
 
 inputs:
   install-dist:
@@ -10,6 +10,12 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install Rust 1.88
+      shell: bash
+      run: |
+        rustup toolchain install 1.88.0 --profile minimal
+        rustup default 1.88.0
+
     - name: Install dist
       if: ${{ inputs.install-dist == 'true' }}
       shell: bash

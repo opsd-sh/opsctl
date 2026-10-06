@@ -23,6 +23,9 @@ jobs:
           path: opsctl
           persist-credentials: false
 
+      - name: Set up release build
+        uses: ./opsctl/.github/actions/setup-release
+
       - name: Select release tag
         id: release
         working-directory: opsctl
@@ -228,6 +231,9 @@ jobs:
         with:
           path: opsctl
           persist-credentials: false
+
+      - name: Set up release build
+        uses: ./opsctl/.github/actions/setup-release
 
       - name: Verify tag matches crate version
         working-directory: opsctl
