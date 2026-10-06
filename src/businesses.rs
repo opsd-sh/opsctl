@@ -1,16 +1,13 @@
 //! Commands for businesses and resources that administer business access.
 
+use crate::{business_billing::BusinessBillingCommand, payroll::BusinessPayrollCommand};
 use clap::{Subcommand, ValueEnum};
 use opsd::types::{
     BusinessId, BusinessInvitationId, BusinessName, BusinessRole, CreateBusinessInvitationRequest,
     CreateBusinessRequest, EmailAddress, UpdateBusinessMemberRequest, UserId,
 };
 
-use crate::{
-    auth::ServerUrl,
-    authenticated_client, print_json,
-    website::{self, WebsiteUrl},
-};
+use crate::{auth::ServerUrl, authenticated_client, print_json, website::WebsiteUrl};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum BusinessesCommand {
@@ -32,6 +29,11 @@ pub(crate) enum BusinessesCommand {
         #[command(subcommand)]
         command: BusinessBillingCommand,
     },
+    /// Manage the standalone payroll subscription.
+    Payroll {
+        #[command(subcommand)]
+        command: BusinessPayrollCommand,
+    },
     /// Manage business members.
     Members {
         #[command(subcommand)]
@@ -41,22 +43,6 @@ pub(crate) enum BusinessesCommand {
     Invitations {
         #[command(subcommand)]
         command: OutgoingBusinessInvitationsCommand,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(crate) enum BusinessBillingCommand {
-    /// Check whether payment setup has been confirmed for the business.
-    /// Requires business administrator access and prints the result as JSON.
-    /// Confirmation does not guarantee that a future charge will succeed.
-    Status {
-        /// Public ID of the business.
-        business_id: BusinessId,
-    },
-    /// Open the website to set up billing details.
-    Setup {
-        /// Public ID of the business to configure.
-        business_id: BusinessId,
     },
 }
 
@@ -209,15 +195,12 @@ pub(crate) async fn execute(
                 }
             }
         }
-        BusinessesCommand::Billing { command } => match command {
-            BusinessBillingCommand::Status { business_id } => {
-                let client = authenticated_client(server_url)?;
-                print_json(&client.get_billing_status(business_id).await?)?
-            }
-            BusinessBillingCommand::Setup { business_id } => {
-                website::open_billing_setup(website_url, &business_id.to_string());
-            }
-        },
+        BusinessesCommand::Billing { command } => {
+            crate::business_billing::execute(command, server_url, website_url).await?;
+        }
+        BusinessesCommand::Payroll { command } => {
+            crate::payroll::execute_business(&authenticated_client(server_url)?, command).await?;
+        }
     }
 
     Ok(())
