@@ -74,6 +74,97 @@ opsctl completions fish | source
 
 Open a new terminal after updating the startup file.
 
+## Practices and payroll
+
+Practice commands follow the existing business command structure:
+
+```sh
+opsctl practices create --name "Example Accountants"
+opsctl practices list
+opsctl practices get PRACTICE_ID
+opsctl practices businesses create PRACTICE_ID --name "Client Ltd"
+opsctl practices businesses list PRACTICE_ID
+opsctl practices members list PRACTICE_ID
+opsctl practices members update PRACTICE_ID USER_ID --role admin
+opsctl practices members remove PRACTICE_ID USER_ID
+opsctl practices invitations create PRACTICE_ID --email user@example.com --role member
+opsctl practices invitations list PRACTICE_ID
+opsctl practices invitations cancel PRACTICE_ID INVITATION_ID
+opsctl practice-invitations list
+opsctl practice-invitations accept INVITATION_ID
+opsctl practice-invitations decline INVITATION_ID
+```
+
+Replace the uppercase placeholders with public UUIDs returned by the API.
+Practice roles are `admin` and `member`. Creating a practice-owned business
+creates a new client with no direct users; it does not link an existing business.
+Use the existing employee, PAYE and payroll-run commands with that client's
+business ID for operational work.
+
+Standalone payroll agreements use subscription vocabulary:
+
+```sh
+opsctl businesses payroll subscribe BUSINESS_ID
+opsctl businesses payroll status BUSINESS_ID
+opsctl businesses payroll cancel BUSINESS_ID
+```
+
+Practice admins enable or disable payroll for individual clients:
+
+```sh
+opsctl practices payroll enable PRACTICE_ID BUSINESS_ID
+opsctl practices payroll status PRACTICE_ID BUSINESS_ID
+opsctl practices payroll disable PRACTICE_ID BUSINESS_ID
+```
+
+Subscribing or enabling does not itself start billing or clear suspension.
+Cancellation and disabling do not clear outstanding charges. Status includes
+any independent suspension; suspension applies practice-wide for practice clients.
+
+## Billing
+
+Both payer types support these administrator commands:
+
+```sh
+opsctl businesses billing status BUSINESS_ID
+opsctl businesses billing payment-methods BUSINESS_ID --limit 25
+opsctl businesses billing set-default-payment-method BUSINESS_ID pm_EXAMPLE
+opsctl businesses billing invoices BUSINESS_ID --before 2026-10 --limit 25
+opsctl businesses billing invoice-lines BUSINESS_ID INVOICE_ID --offset 0 --limit 25
+opsctl businesses billing invoice-pdf BUSINESS_ID INVOICE_ID --output invoice.pdf
+
+opsctl practices billing status PRACTICE_ID
+opsctl practices billing payment-methods PRACTICE_ID
+opsctl practices billing set-default-payment-method PRACTICE_ID pm_EXAMPLE
+opsctl practices billing invoices PRACTICE_ID
+opsctl practices billing invoice-lines PRACTICE_ID INVOICE_ID
+opsctl practices billing invoice-pdf PRACTICE_ID INVOICE_ID --output practice-invoice.pdf
+```
+
+Successful API responses are printed as JSON; operations returning no content
+are silent. List commands return one page. Pass `next_before` as `--before`,
+`next_offset` as `--offset`, or `next_starting_after` as `--starting-after` on
+the next request. A null cursor means there are no more pages. Limits accept
+1–100; omitting pagination options uses the server defaults.
+
+Billing status and payment methods are read live from Stripe. Invoice history
+and detailed charges come from Opsd; subtotals are not outstanding balances.
+Practice invoice lines identify each client business, while PDFs contain
+summary lines. Selecting a default payment method does not charge it, retry
+invoices or clear suspension.
+
+PDF downloads require `--output`, preserve binary contents, and refuse to
+overwrite existing files. New PDF files are owner-only on Unix. Download
+failures do not create an output file. Files are written to a temporary file
+in the destination directory first, so a local write failure leaves no partial
+PDF at the requested path. Confirmation is printed to stderr,
+leaving stdout empty.
+
+The existing `businesses billing setup BUSINESS_ID` command opens the website
+without passing CLI credentials to the browser. Practice payment setup is
+handled through the website; the new practice billing commands use API
+credentials and do not create browser portal sessions.
+
 ## Releasing
 
 Releases are built from the `opsctl` repository and published as public

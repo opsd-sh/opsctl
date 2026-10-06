@@ -7,12 +7,18 @@ use serde::Serialize;
 use url::Url;
 
 mod auth;
+mod billing;
+mod business_billing;
 mod business_invitations;
 mod businesses;
 mod employees;
 mod employments;
 mod paye_schemes;
+mod payroll;
 mod payroll_runs;
+mod practice_billing;
+mod practice_invitations;
+mod practices;
 mod website;
 
 #[derive(Debug, Parser)]
@@ -33,6 +39,16 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Manage practices and their client businesses.
+    Practices {
+        #[command(subcommand)]
+        command: practices::PracticesCommand,
+    },
+    /// Manage practice invitations received by the authenticated user.
+    PracticeInvitations {
+        #[command(subcommand)]
+        command: practice_invitations::PracticeInvitationsCommand,
+    },
     /// Authenticate this CLI.
     Auth {
         #[command(subcommand)]
@@ -123,6 +139,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     match cli.command {
+        Command::Practices { command } => {
+            practices::execute(command, &server_url).await?;
+        }
+        Command::PracticeInvitations { command } => {
+            let client = authenticated_client(&server_url)?;
+            practice_invitations::execute(&client, command).await?;
+        }
         Command::Auth { command } => match command {
             AuthCommand::Login => auth::login(&server_url).await?,
             AuthCommand::Status => auth::print_status(&server_url)?,
