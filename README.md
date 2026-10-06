@@ -52,7 +52,7 @@ The installer places `opsctl` in `~/.local/bin` and explains how to add that
 directory to `PATH` if needed.
 
 Rust developers can instead build and install the CLI from crates.io using
-Rust 1.88 or newer:
+Rust 1.99 or newer:
 
 ```sh
 cargo install --locked opsctl

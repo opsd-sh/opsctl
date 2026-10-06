@@ -2,7 +2,7 @@
 name = "opsctl"
 version = "0.3.2"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.99"
 description = "CLI for the Opsd API"
 homepage = "https://opsd.sh"
 repository = "https://github.com/opsd-sh/opsctl"
