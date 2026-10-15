@@ -5,9 +5,12 @@ use opsd::{
     OpsdClient,
     types::{
         AccountsOfficeReference, BusinessId, CreatePayeSchemeRequest, EmployerReference,
-        PayeSchemeName,
+        EmploymentAllowance, PayeSchemeId, PayeSchemeName, RolloverPayeSchemeRequest,
+        RolloverTaxCodeNotice,
     },
 };
+
+use std::path::PathBuf;
 
 use crate::print_json;
 
@@ -31,6 +34,26 @@ pub(crate) enum PayeSchemesCommand {
         /// Accounts Office reference.
         #[arg(long)]
         accounts_office_reference: AccountsOfficeReference,
+        /// Initial tax year, e.g. 2026 for 2026-27.
+        #[arg(long)]
+        tax_year_start: i32,
+        #[arg(long)]
+        employment_allowance: EmploymentAllowance,
+    },
+    /// Request year rollover, including an end-of-year FPS and a new-year EPS.
+    ///
+    /// The EPS declares the supplied Employment Allowance decision. Retry the
+    /// same request to resume an interrupted rollover.
+    Rollover {
+        business_id: BusinessId,
+        paye_scheme_id: PayeSchemeId,
+        #[arg(long)]
+        tax_year_start: i32,
+        #[arg(long)]
+        employment_allowance: EmploymentAllowance,
+        /// JSON file containing the latest new-year notices, or [] after checking none apply.
+        #[arg(long)]
+        tax_code_notices: PathBuf,
     },
 }
 
@@ -48,6 +71,8 @@ pub(crate) async fn execute(
             name,
             employer_reference,
             accounts_office_reference,
+            tax_year_start,
+            employment_allowance,
         } => print_json(
             &client
                 .create_paye_scheme(
@@ -56,10 +81,35 @@ pub(crate) async fn execute(
                         name,
                         employer_reference,
                         accounts_office_reference,
+                        tax_year_start,
+                        employment_allowance,
                     },
                 )
                 .await?,
         )?,
+        PayeSchemesCommand::Rollover {
+            business_id,
+            paye_scheme_id,
+            tax_year_start,
+            employment_allowance,
+            tax_code_notices,
+        } => {
+            let notices: Vec<RolloverTaxCodeNotice> =
+                serde_json::from_reader(std::fs::File::open(tax_code_notices)?)?;
+            print_json(
+                &client
+                    .rollover_paye_scheme(
+                        business_id,
+                        paye_scheme_id,
+                        &RolloverPayeSchemeRequest {
+                            tax_year_start,
+                            employment_allowance,
+                            tax_code_notices: notices,
+                        },
+                    )
+                    .await?,
+            )?;
+        }
     }
 
     Ok(())

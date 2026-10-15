@@ -122,6 +122,112 @@ Subscribing or enabling does not itself start billing or clear suspension.
 Cancellation and disabling do not clear outstanding charges. Status includes
 any independent suspension; suspension applies practice-wide for practice clients.
 
+## Running monthly payroll
+
+These commands support new employments, monthly payments and the server's
+2026–27 calculation rules. They do not make bank transfers. Use public UUIDs in place of the uppercase identifiers below.
+
+Create the scheme and a schedule, then set up the employee separately:
+
+```sh
+opsctl paye-schemes create BUSINESS_ID --name "PAYE" \
+  --employer-reference "123/AB456" --accounts-office-reference "123PA00045678" \
+  --tax-year-start 2026 --employment-allowance not_claiming
+opsctl pay-schedules create BUSINESS_ID --paye-scheme-id SCHEME_ID --name "Monthly staff"
+opsctl pay-schedules list BUSINESS_ID
+opsctl employees create BUSINESS_ID --forenames Jamie Lee --surname Morgan
+opsctl employments create BUSINESS_ID --employee-id EMPLOYEE_ID \
+  --paye-scheme-id SCHEME_ID --pay-schedule-id SCHEDULE_ID \
+  --start-date 2026-10-01 --ni-category A --monthly-gross-pay-pence 300000 \
+  checklist --declaration A
+```
+
+Choose `claiming` or `not_claiming` explicitly for Employment Allowance. The
+schedule frequency defaults to `monthly`, currently the only supported value.
+`employments new` is an alias for `employments create`; both create a new
+employment with zero opening YTD. Migrated employments are not supported yet.
+
+The final subcommand records the starter information. Alternatives to
+`checklist --declaration A` are:
+
+```sh
+# Use the P45 from the last previous job; amounts are whole pence.
+p45 --leaving-date 2026-09-30 --tax-code 1257L cumulative \
+  --total-pay-to-date-pence 1800000 --total-tax-to-date-pence 150000
+# A W1/M1 P45 does not import previous pay/tax figures.
+p45 --leaving-date 2026-09-30 --tax-code 1257L non-cumulative
+# Neither P45 nor completed checklist is available.
+not-provided
+```
+
+For an older P45, add `--starter-declaration A`, `B` or `C` before its basis
+subcommand when required. The server checks applicability against the employment
+start date. These are starter-route examples to append to the employment command,
+not standalone shell commands. Use `--help` at any level for all arguments.
+
+Read or update employment defaults, or supply replacement starter information:
+
+```sh
+opsctl employments get BUSINESS_ID EMPLOYMENT_ID
+opsctl employments update BUSINESS_ID EMPLOYMENT_ID --monthly-gross-pay-pence 320000
+opsctl employments update BUSINESS_ID EMPLOYMENT_ID checklist --declaration B
+opsctl employments tax-code-notice BUSINESS_ID EMPLOYMENT_ID \
+  --tax-year-start 2026 --tax-code 1257L cumulative \
+  --previous-taxable-pay-pence 1800000 --previous-tax-paid-pence 150000
+```
+
+For a cumulative notice, omit both previous-amount flags to retain existing
+cumulative totals. Switching from W1/M1 needs both figures, including explicit
+zeros where appropriate. Supplied totals replace earlier-job amounts, never this
+employment's YTD. `non-cumulative` accepts no previous-amount flags. Starter
+changes and tax notices use separate commands; starter changes are restricted
+after finalisation or an HMRC notice. Tax notices affect existing draft previews.
+
+Run payroll and adjust the saved gross input where needed:
+
+```sh
+opsctl payroll-runs create BUSINESS_ID --paye-scheme-id SCHEME_ID \
+  --pay-schedule-id SCHEDULE_ID --payment-date 2026-10-30
+opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --gross-pay-pence 150000
+opsctl payroll-runs preview BUSINESS_ID RUN_ID
+opsctl payroll-runs finalize BUSINESS_ID RUN_ID
+opsctl payroll-runs get BUSINESS_ID RUN_ID
+opsctl payroll-runs payments BUSINESS_ID RUN_ID
+# Discard an unwanted draft:
+opsctl payroll-runs discard BUSINESS_ID DRAFT_RUN_ID
+```
+
+All monetary flags use whole pence. Monthly salaries are not automatically
+prorated. `update-payment` changes only that draft's gross input. `preview` is
+read-only and uses current tax settings; `get` shows saved inputs and, after
+finalisation, immutable calculation results. `payments` requires a finalised run
+and prints JSON containing employee IDs, current names, saved net amounts and
+the net total. It does not initiate transfers or output bank account details.
+
+The rollover contract includes opserver sending an end-of-year FPS for the
+closing year and an EPS declaring the Employment Allowance decision for the new
+year. It also closes the old year and prepares new-year employment settings.
+
+Year rollover requires an explicit notices file containing a JSON array:
+
+```json
+[
+  {"employment_id": "EMPLOYMENT_ID", "tax_code": "1257L", "tax_basis": "cumulative"}
+]
+```
+
+Supply `[]` only after checking there are no new-year notices. Then use:
+
+```sh
+opsctl paye-schemes rollover BUSINESS_ID SCHEME_ID --tax-year-start NEXT_TAX_YEAR \
+  --employment-allowance not_claiming --tax-code-notices notices.json
+```
+
+The destination must be the next year supported by the server. Entering 2027–28
+is currently rejected before closing 2026–27. Resolve outstanding drafts first;
+retry the same request/file if rollover is interrupted. The command reports the
+rollover status returned by the server.
+
 ## Billing
 
 Both payer types support these administrator commands:
