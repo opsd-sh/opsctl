@@ -4,8 +4,8 @@ use clap::Subcommand;
 use opsd::{
     OpsdClient,
     types::{
-        BusinessId, CreatePayrollRunRequest, EmploymentId, PayeSchemeId, PayrollPaymentDate,
-        PayrollRunId,
+        BusinessId, CreatePayrollRunRequest, EmploymentId, NonNegativePence, PayScheduleId,
+        PayeSchemeId, PayrollPaymentDate, PayrollRunId, UpdatePayrollPaymentRequest,
     },
 };
 
@@ -25,6 +25,8 @@ pub(crate) enum PayrollRunsCommand {
         /// Public ID of the PAYE scheme.
         #[arg(long)]
         paye_scheme_id: PayeSchemeId,
+        #[arg(long)]
+        pay_schedule_id: PayScheduleId,
         /// Contractual payment date in YYYY-MM-DD format.
         #[arg(long)]
         payment_date: PayrollPaymentDate,
@@ -61,6 +63,29 @@ pub(crate) enum PayrollRunsCommand {
         /// Public ID of the payroll run.
         payroll_run_id: PayrollRunId,
     },
+    /// Calculate a draft without saving results.
+    Preview {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+    },
+    /// Override one draft payment. Does not change the employment's monthly default.
+    UpdatePayment {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+        employment_id: EmploymentId,
+        #[arg(long)]
+        gross_pay_pence: NonNegativePence,
+    },
+    /// Delete a draft payroll run. Finalised runs cannot be discarded.
+    Discard {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+    },
+    /// List employees and their saved net amounts to pay for a finalised run.
+    Payments {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+    },
 }
 
 /// Executes a payroll-run command against the authenticated public API.
@@ -75,6 +100,7 @@ pub(crate) async fn execute(
         PayrollRunsCommand::Create {
             business_id,
             paye_scheme_id,
+            pay_schedule_id,
             payment_date,
         } => print_json(
             &client
@@ -82,6 +108,7 @@ pub(crate) async fn execute(
                     business_id,
                     &CreatePayrollRunRequest {
                         paye_scheme_id,
+                        pay_schedule_id,
                         payment_date,
                     },
                 )
@@ -117,6 +144,74 @@ pub(crate) async fn execute(
                 .finalize_payroll_run(business_id, payroll_run_id)
                 .await?,
         )?,
+        PayrollRunsCommand::Preview {
+            business_id,
+            payroll_run_id,
+        } => print_json(
+            &client
+                .preview_payroll_run(business_id, payroll_run_id)
+                .await?,
+        )?,
+        PayrollRunsCommand::UpdatePayment {
+            business_id,
+            payroll_run_id,
+            employment_id,
+            gross_pay_pence,
+        } => {
+            client
+                .update_payroll_payment(
+                    business_id,
+                    payroll_run_id,
+                    employment_id,
+                    &UpdatePayrollPaymentRequest { gross_pay_pence },
+                )
+                .await?
+        }
+        PayrollRunsCommand::Discard {
+            business_id,
+            payroll_run_id,
+        } => {
+            client
+                .discard_payroll_run(business_id, payroll_run_id)
+                .await?
+        }
+        PayrollRunsCommand::Payments {
+            business_id,
+            payroll_run_id,
+        } => {
+            let result = client.get_payroll_run(business_id, payroll_run_id).await?;
+            if result.details.run.status != opsd::types::PayrollRunStatus::Finalized {
+                return Err(
+                    "payment lists require a finalised run; use preview for a draft".into(),
+                );
+            }
+            let calculation = result
+                .details
+                .calculation
+                .ok_or("this historical run has no saved calculation")?;
+            let employments = client.list_employments(business_id).await?.employments;
+            let employees = client.list_employees(business_id).await?.employees;
+            let mut payments = Vec::new();
+            for payment in calculation.payments {
+                let employment = employments
+                    .iter()
+                    .find(|e| e.id == payment.employment_id)
+                    .ok_or("payment employment was not found")?;
+                let employee = employees
+                    .iter()
+                    .find(|e| e.id == employment.employee_id)
+                    .ok_or("payment employee was not found")?;
+                payments.push(
+                    serde_json::json!({"employment_id":employment.id,"employee_id":employee.id,
+                    "forenames":employee.forenames.as_slice().iter().map(|name|name.as_str()).collect::<Vec<_>>(),"surname":employee.surname.as_str(),
+                    "net_pay_pence":payment.amounts.net_pay_pence}),
+                );
+            }
+            print_json(
+                &serde_json::json!({"payroll_run_id":payroll_run_id,"payment_date":calculation.payment_date,
+                "payments":payments,"total_net_pay_pence":calculation.totals.net_pay_pence}),
+            )?;
+        }
     }
 
     Ok(())

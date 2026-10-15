@@ -13,6 +13,7 @@ mod business_invitations;
 mod businesses;
 mod employees;
 mod employments;
+mod pay_schedules;
 mod paye_schemes;
 mod payroll;
 mod payroll_runs;
@@ -88,6 +89,11 @@ enum Command {
     PayeSchemes {
         #[command(subcommand)]
         command: paye_schemes::PayeSchemesCommand,
+    },
+    /// Manage schedules within a PAYE scheme.
+    PaySchedules {
+        #[command(subcommand)]
+        command: pay_schedules::PaySchedulesCommand,
     },
     /// Manage payroll runs.
     PayrollRuns {
@@ -187,6 +193,10 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Command::PayeSchemes { command } => {
             let client = authenticated_client(&server_url)?;
             paye_schemes::execute(&client, command).await?;
+        }
+        Command::PaySchedules { command } => {
+            let client = authenticated_client(&server_url)?;
+            pay_schedules::execute(&client, command).await?;
         }
         Command::PayrollRuns { command } => {
             let client = authenticated_client(&server_url)?;
@@ -319,6 +329,17 @@ mod tests {
                 EMPLOYEE_ID,
                 "--paye-scheme-id",
                 PAYE_SCHEME_ID,
+                "--pay-schedule-id",
+                "99999999-9999-4999-8999-999999999999",
+                "--start-date",
+                "2026-09-01",
+                "--ni-category",
+                "A",
+                "--monthly-gross-pay-pence",
+                "300000",
+                "checklist",
+                "--declaration",
+                "A",
             ],
             vec!["opsctl", "paye-schemes", "list", BUSINESS_ID],
             vec![
@@ -332,6 +353,10 @@ mod tests {
                 "123/AB456",
                 "--accounts-office-reference",
                 "123PA00045678",
+                "--tax-year-start",
+                "2026",
+                "--employment-allowance",
+                "not_claiming",
             ],
             vec!["opsctl", "payroll-runs", "list", BUSINESS_ID],
             vec![
@@ -343,6 +368,8 @@ mod tests {
                 PAYE_SCHEME_ID,
                 "--payment-date",
                 "2026-09-30",
+                "--pay-schedule-id",
+                "99999999-9999-4999-8999-999999999999",
             ],
             vec!["opsctl", "payroll-runs", "get", BUSINESS_ID, PAYROLL_RUN_ID],
             vec![
