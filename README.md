@@ -80,7 +80,9 @@ Open a new terminal after updating the startup file.
 Practice commands follow the existing business command structure:
 
 ```sh
-opsctl practices create --name "Example Accountants"
+opsctl practices create --name "Example Accountants" --hmrc-reporting reporting.json
+opsctl practices hmrc-reporting PRACTICE_ID
+opsctl practices update-hmrc-reporting PRACTICE_ID --file reporting.json
 opsctl practices list
 opsctl practices get PRACTICE_ID
 opsctl practices businesses create PRACTICE_ID --name "Client Ltd"
@@ -105,20 +107,21 @@ business ID for operational work.
 Standalone payroll agreements use subscription vocabulary:
 
 ```sh
-opsctl businesses payroll subscribe BUSINESS_ID
+opsctl businesses payroll subscribe BUSINESS_ID --expected-version VERSION
 opsctl businesses payroll status BUSINESS_ID
-opsctl businesses payroll cancel BUSINESS_ID
+opsctl businesses payroll cancel BUSINESS_ID --expected-version VERSION
 ```
 
 Practice admins enable or disable payroll for individual clients:
 
 ```sh
-opsctl practices payroll enable PRACTICE_ID BUSINESS_ID
+opsctl practices payroll enable PRACTICE_ID BUSINESS_ID --expected-version VERSION
 opsctl practices payroll status PRACTICE_ID BUSINESS_ID
-opsctl practices payroll disable PRACTICE_ID BUSINESS_ID
+opsctl practices payroll disable PRACTICE_ID BUSINESS_ID --expected-version VERSION
 ```
 
-Subscribing or enabling does not itself start billing or clear suspension.
+Subscribing or enabling starts monthly base fees without clearing suspension.
+Read `subscription_version` from status and pass it as `--expected-version`.
 Cancellation and disabling do not clear outstanding charges. Status includes
 any independent suspension; suspension applies practice-wide for practice clients.
 
@@ -135,10 +138,13 @@ opsctl paye-schemes create BUSINESS_ID --name "PAYE" \
   --tax-year-start 2026 --employment-allowance not_claiming
 opsctl pay-schedules create BUSINESS_ID --paye-scheme-id SCHEME_ID --name "Monthly staff"
 opsctl pay-schedules list BUSINESS_ID
-opsctl employees create BUSINESS_ID --forenames Jamie Lee --surname Morgan
+opsctl employees create BUSINESS_ID --forenames Jamie Lee --surname Morgan \
+  --date-of-birth 1985-05-05 --sex M --address address.json
 opsctl employments create BUSINESS_ID --employee-id EMPLOYEE_ID \
   --paye-scheme-id SCHEME_ID --pay-schedule-id SCHEDULE_ID \
   --start-date 2026-10-01 --ni-category A --monthly-gross-pay-pence 300000 \
+  --normal-weekly-hours-band thirty_or_more \
+  --student-loan not_applicable --postgraduate-loan not_applicable \
   checklist --declaration A
 ```
 
@@ -190,7 +196,8 @@ opsctl payroll-runs create BUSINESS_ID --paye-scheme-id SCHEME_ID \
   --pay-schedule-id SCHEDULE_ID --payment-date 2026-10-30
 opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --gross-pay-pence 150000
 opsctl payroll-runs preview BUSINESS_ID RUN_ID
-opsctl payroll-runs finalize BUSINESS_ID RUN_ID
+opsctl payroll-runs finalize BUSINESS_ID RUN_ID --expected-version VERSION \
+  --sender-id SENDER_ID --password-file hmrc-password.txt
 opsctl payroll-runs get BUSINESS_ID RUN_ID
 opsctl payroll-runs payments BUSINESS_ID RUN_ID
 # Discard an unwanted draft:
@@ -198,13 +205,17 @@ opsctl payroll-runs discard BUSINESS_ID DRAFT_RUN_ID
 ```
 
 All monetary flags use whole pence. Monthly salaries are not automatically
-prorated. `update-payment` changes only that draft's gross input. `preview` is
+prorated. `update-payment` changes that draft's gross input and/or `--normal-weekly-hours-band`. `preview` is
 read-only and uses current tax settings; `get` shows saved inputs and, after
 finalisation, immutable calculation results. `payments` requires a finalised run
 and prints JSON containing employee IDs, current names, saved net amounts and
-the net total. It does not initiate transfers or output bank account details.
+the net total, together with `revision_id` and the run’s `status`. Unaccepted
+finalised runs also include their nested `submission` state, including any
+rejection. These describe the state when the run was read; exporting payment
+amounts does not establish HMRC acceptance. The command does not initiate
+transfers or output bank account details.
 
-The rollover contract includes opserver sending an end-of-year FPS for the
+Year rollover includes sending an end-of-year FPS for the
 closing year and an EPS declaring the Employment Allowance decision for the new
 year. It also closes the old year and prepares new-year employment settings.
 
@@ -220,13 +231,97 @@ Supply `[]` only after checking there are no new-year notices. Then use:
 
 ```sh
 opsctl paye-schemes rollover BUSINESS_ID SCHEME_ID --tax-year-start NEXT_TAX_YEAR \
-  --employment-allowance not_claiming --tax-code-notices notices.json
+  --employment-allowance not_claiming --tax-code-notices notices.json \
+  --expected-generation GENERATION --sender-id SENDER_ID --password-file hmrc-password.txt
 ```
 
 The destination must be the next year supported by the server. Entering 2027–28
 is currently rejected before closing 2026–27. Resolve outstanding drafts first;
-retry the same request/file if rollover is interrupted. The command reports the
-rollover status returned by the server.
+read `rollover_generation` from the scheme before starting. Use the progress
+commands below to continue an interrupted rollover instead of repeating its
+start request.
+
+## Reporting details and submission progress
+
+An employee address file contains one of:
+
+```json
+{"type":"uk","lines":["1 Example Road","London"],"postcode":"SW1A 1AA"}
+```
+
+```json
+{"type":"foreign","lines":["1 Example Street"],"country":"France"}
+```
+
+```json
+{"type":"lines","lines":["1 Example Road"]}
+```
+
+A practice reporting file can contain:
+
+```json
+{"name":"Example Accountants","address":{"lines":["1 Example Road"],"post_code":"SW1A 1AA","country":null},"contact_name":{"title":null,"forenames":["Jamie"],"surname":"Morgan"},"email":"payroll@example.com","telephone":null}
+```
+
+Employee creation accepts optional `--title`, `--passport-number` and
+`--national-insurance-number`. Updates accept those flags or their
+`--clear-title`, `--clear-passport-number` and `--clear-national-insurance-number`
+counterparts. Omitted fields are unchanged. The server enforces which edits
+are allowed after payroll has been run. PAYE schemes accept `--company-utr`
+for an optional Corporation Tax reference.
+
+Hours bands are `less_than_16`, `sixteen_to_less_than_24`,
+`twenty_four_to_less_than_30`, `thirty_or_more` or `other` (no normal weekly
+pattern). Loan deductions are not supported yet: both loan arguments require
+an explicit `not_applicable` declaration, only when that is true.
+
+Supply an HMRC password using a protected file, or `--password-file -` for
+standard input. One trailing newline is removed; spaces are preserved.
+The CLI does not save the password in its configuration or accept it as a
+literal command-line argument. Keep files containing personal data protected too.
+
+Finalisation submits the FPS. Its returned state can still be `sending`,
+`pending` or another submission state within `finalized`; successful HTTP
+completion does not mean HMRC accepted it. Read `payroll-runs get` for progress.
+The top-level `accepted` state confirms acceptance. Follow `available_actions`
+and use the response's `version` for each subsequent action:
+
+```sh
+opsctl payroll-runs history BUSINESS_ID RUN_ID
+opsctl payroll-runs retry BUSINESS_ID RUN_ID --expected-version VERSION \
+  --sender-id SENDER_ID --password-file hmrc-password.txt
+opsctl payroll-runs resume BUSINESS_ID RUN_ID --expected-version VERSION polling
+opsctl payroll-runs resume BUSINESS_ID RUN_ID --expected-version VERSION \
+  reconciliation --password-file hmrc-password.txt
+opsctl payroll-runs reopen BUSINESS_ID RUN_ID --expected-version VERSION
+opsctl payroll-runs cancel BUSINESS_ID RUN_ID --expected-version VERSION
+```
+
+`--late-reporting-reason A` through `H` is available on finalisation when
+applicable. A conflict may report how many seconds to wait before retrying.
+After a conflict or uncertain transport result, read progress before deciding
+what to do; do not blindly repeat an action with a newer version.
+
+Rollover progress contains separate final-FPS and new-year-EPS states:
+
+```sh
+opsctl paye-schemes rollovers BUSINESS_ID SCHEME_ID
+opsctl paye-schemes rollover-status BUSINESS_ID SCHEME_ID ROLLOVER_ID
+opsctl paye-schemes rollover-history BUSINESS_ID SCHEME_ID ROLLOVER_ID
+opsctl paye-schemes retry-rollover BUSINESS_ID SCHEME_ID ROLLOVER_ID \
+  --expected-version VERSION --sender-id SENDER_ID --password-file hmrc-password.txt
+opsctl paye-schemes resume-rollover BUSINESS_ID SCHEME_ID ROLLOVER_ID \
+  --expected-version VERSION polling
+opsctl paye-schemes resume-rollover BUSINESS_ID SCHEME_ID ROLLOVER_ID \
+  --expected-version VERSION reconciliation --password-file hmrc-password.txt
+opsctl paye-schemes resume-rollover BUSINESS_ID SCHEME_ID ROLLOVER_ID \
+  --expected-version VERSION send-eps --sender-id SENDER_ID --password-file hmrc-password.txt
+opsctl paye-schemes cancel-rollover BUSINESS_ID SCHEME_ID ROLLOVER_ID \
+  --expected-version VERSION
+```
+
+The list includes terminal rollovers and can recover an ID after a lost start
+response. Retry/resume/cancel always target that specific rollover and version.
 
 ## Billing
 

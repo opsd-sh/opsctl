@@ -13,6 +13,7 @@ mod business_invitations;
 mod businesses;
 mod employees;
 mod employments;
+mod hmrc_credentials;
 mod pay_schedules;
 mod paye_schemes;
 mod payroll;
@@ -129,6 +130,12 @@ async fn main() {
             error_style.render(),
             error_style.render_reset()
         );
+        if let Some(seconds) = error
+            .downcast_ref::<opsd::Error>()
+            .and_then(opsd::Error::retry_after_seconds)
+        {
+            eprintln!("Wait at least {seconds} seconds before retrying.");
+        }
         std::process::exit(1);
     }
 }
@@ -308,6 +315,12 @@ mod tests {
                 "Augusta",
                 "--surname",
                 "Lovelace",
+                "--date-of-birth",
+                "1985-05-05",
+                "--sex",
+                "F",
+                "--address",
+                "address.json",
             ],
             vec!["opsctl", "employees", "get", BUSINESS_ID, EMPLOYEE_ID],
             vec![
@@ -337,6 +350,12 @@ mod tests {
                 "A",
                 "--monthly-gross-pay-pence",
                 "300000",
+                "--normal-weekly-hours-band",
+                "thirty_or_more",
+                "--student-loan",
+                "not_applicable",
+                "--postgraduate-loan",
+                "not_applicable",
                 "checklist",
                 "--declaration",
                 "A",
@@ -394,6 +413,12 @@ mod tests {
                 "finalize",
                 BUSINESS_ID,
                 PAYROLL_RUN_ID,
+                "--expected-version",
+                "0",
+                "--sender-id",
+                "test-sender",
+                "--password-file",
+                "password.txt",
             ],
         ];
 
@@ -447,6 +472,12 @@ mod tests {
             "Louise",
             "--surname",
             "Smith",
+            "--date-of-birth",
+            "1985-05-05",
+            "--sex",
+            "F",
+            "--address",
+            "address.json",
         ]))
         .unwrap();
         let super::Command::Employees {
