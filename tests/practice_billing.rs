@@ -124,16 +124,26 @@ fn check(args: &[&str], method: &str, path: &str, sent: Option<Value>, response:
 
 #[test]
 fn practice_members_clients_and_invitations_route_and_print_correctly() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let reporting = json!({"name":"Accountants","address":null,"contact_name":null,"email":null,"telephone":null});
+    std::fs::write(file.path(), reporting.to_string()).unwrap();
     let practice = json!({"id":P,"name":"Accountants","role":"admin"});
     let client = json!({"id":B,"name":"Client","practice_id":P});
     let member = json!({"id":U,"email":"person@example.com","email_verified":true,"role":"member"});
     let invitation = json!({"id":I,"email":"person@example.com","role":"member","status":"pending","expires_at":DATE});
     let pending = json!({"id":I,"practice_id":P,"practice_name":"Accountants","invited_by_email":"admin@example.com","role":"member","expires_at":DATE});
     check(
-        &["practices", "create", "--name", "Accountants"],
+        &[
+            "practices",
+            "create",
+            "--name",
+            "Accountants",
+            "--hmrc-reporting",
+            file.path().to_str().unwrap(),
+        ],
         "POST",
         "practices",
-        Some(json!({"name":"Accountants"})),
+        Some(json!({"name":"Accountants","hmrc_reporting":reporting})),
         Some(practice.clone()),
     );
     check(
@@ -243,11 +253,18 @@ fn practice_members_clients_and_invitations_route_and_print_correctly() {
 #[test]
 fn payroll_commands_preserve_agreement_and_suspension_states() {
     check(
-        &["businesses", "payroll", "subscribe", B],
+        &[
+            "businesses",
+            "payroll",
+            "subscribe",
+            B,
+            "--expected-version",
+            "0",
+        ],
         "POST",
         &format!("businesses/{B}/payroll-subscription"),
-        None,
-        Some(json!({"status":"subscribed","subscribed_at":DATE,"billing_start_month":null})),
+        Some(json!({"expected_version":0})),
+        Some(json!({"status":"subscribed","subscribed_at":DATE,"subscription_version":0})),
     );
     check(
         &["businesses", "payroll", "status", B],
@@ -255,23 +272,38 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
         &format!("businesses/{B}/payroll-subscription"),
         None,
         Some(
-            json!({"status":"cancelled","subscribed_at":DATE,"billing_start_month":"2026-10","cancelled_at":DATE,"suspension":{"suspended_at":DATE}}),
+            json!({"status":"cancelled","subscribed_at":DATE,"subscription_version":0,"cancelled_at":DATE,"suspension":{"suspended_at":DATE}}),
         ),
     );
     check(
-        &["businesses", "payroll", "cancel", B],
+        &[
+            "businesses",
+            "payroll",
+            "cancel",
+            B,
+            "--expected-version",
+            "0",
+        ],
         "DELETE",
         &format!("businesses/{B}/payroll-subscription"),
-        None,
+        Some(json!({"expected_version":0})),
         None,
     );
     check(
-        &["practices", "payroll", "enable", P, B],
+        &[
+            "practices",
+            "payroll",
+            "enable",
+            P,
+            B,
+            "--expected-version",
+            "0",
+        ],
         "POST",
         &format!("practices/{P}/businesses/{B}/payroll"),
-        None,
+        Some(json!({"expected_version":0})),
         Some(
-            json!({"status":"enabled","enabled_at":DATE,"billing_start_month":null,"suspension":null}),
+            json!({"status":"enabled","enabled_at":DATE,"subscription_version":0,"suspension":null}),
         ),
     );
     check(
@@ -280,14 +312,22 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
         &format!("practices/{P}/businesses/{B}/payroll"),
         None,
         Some(
-            json!({"status":"disabled","enabled_at":DATE,"disabled_at":DATE,"billing_start_month":"2026-10","suspension":{"suspended_at":DATE}}),
+            json!({"status":"disabled","enabled_at":DATE,"disabled_at":DATE,"subscription_version":0,"suspension":{"suspended_at":DATE}}),
         ),
     );
     check(
-        &["practices", "payroll", "disable", P, B],
+        &[
+            "practices",
+            "payroll",
+            "disable",
+            P,
+            B,
+            "--expected-version",
+            "0",
+        ],
         "DELETE",
         &format!("practices/{P}/businesses/{B}/payroll"),
-        None,
+        Some(json!({"expected_version":0})),
         None,
     );
 }
@@ -436,7 +476,15 @@ fn failures_have_nonzero_exit_and_do_not_create_pdf_files() {
                 "--output",
                 path.to_str().unwrap(),
             ],
-            vec!["practices", "payroll", "disable", P, B],
+            vec![
+                "practices",
+                "payroll",
+                "disable",
+                P,
+                B,
+                "--expected-version",
+                "0",
+            ],
             vec!["practices", "get", P],
         ] {
             let (output, _) = request(&args, status, "application/problem+json", body.as_bytes());
@@ -528,7 +576,14 @@ fn invalid_arguments_fail_before_authentication_and_commands_require_login() {
     for args in [
         vec!["practices", "list"],
         vec!["practice-invitations", "list"],
-        vec!["businesses", "payroll", "subscribe", B],
+        vec![
+            "businesses",
+            "payroll",
+            "subscribe",
+            B,
+            "--expected-version",
+            "0",
+        ],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_opsctl"))
             .env("OPSCTL_CONFIG_DIR", config.path())

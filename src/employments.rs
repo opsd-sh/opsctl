@@ -30,6 +30,14 @@ pub(crate) enum EmploymentsCommand {
         /// Regular monthly gross pay, in whole pence (no automatic proration).
         #[arg(long)]
         monthly_gross_pay_pence: NonNegativePence,
+        #[arg(long)]
+        normal_weekly_hours_band: NormalWeeklyHoursBand,
+        /// Explicit confirmation: not_applicable. Loan deductions are not supported yet.
+        #[arg(long)]
+        student_loan: StudentLoan,
+        /// Explicit confirmation: not_applicable. Loan deductions are not supported yet.
+        #[arg(long)]
+        postgraduate_loan: PostgraduateLoan,
         #[command(subcommand)]
         starter: StarterArgs,
     },
@@ -43,6 +51,8 @@ pub(crate) enum EmploymentsCommand {
         ni_category: Option<NiCategory>,
         #[arg(long)]
         monthly_gross_pay_pence: Option<NonNegativePence>,
+        #[arg(long)]
+        normal_weekly_hours_band: Option<NormalWeeklyHoursBand>,
         #[command(subcommand)]
         starter: Option<StarterArgs>,
     },
@@ -185,6 +195,9 @@ pub(crate) async fn execute(
             start_date,
             ni_category,
             monthly_gross_pay_pence,
+            normal_weekly_hours_band,
+            student_loan,
+            postgraduate_loan,
             starter,
         } => print_json(
             &client
@@ -197,6 +210,9 @@ pub(crate) async fn execute(
                         start_date,
                         ni_category,
                         monthly_gross_pay_pence,
+                        normal_weekly_hours_band,
+                        student_loan,
+                        postgraduate_loan,
                         starter_information: starter.into(),
                     },
                 )
@@ -208,11 +224,13 @@ pub(crate) async fn execute(
             start_date,
             ni_category,
             monthly_gross_pay_pence,
+            normal_weekly_hours_band,
             starter,
         } => {
             if start_date.is_none()
                 && ni_category.is_none()
                 && monthly_gross_pay_pence.is_none()
+                && normal_weekly_hours_band.is_none()
                 && starter.is_none()
             {
                 return Err(
@@ -228,6 +246,7 @@ pub(crate) async fn execute(
                             start_date,
                             ni_category,
                             monthly_gross_pay_pence,
+                            normal_weekly_hours_band,
                             starter_information: starter.map(Into::into),
                         }),
                     )
@@ -249,6 +268,7 @@ pub(crate) async fn execute(
                         tax_code_notice: basis.into_notice(tax_year_start, tax_code),
                         monthly_gross_pay_pence: None,
                         ni_category: None,
+                        normal_weekly_hours_band: None,
                     }),
                 )
                 .await?,
@@ -368,6 +388,12 @@ mod tests {
             "A",
             "--monthly-gross-pay-pence",
             "300000",
+            "--normal-weekly-hours-band",
+            "thirty_or_more",
+            "--student-loan",
+            "not_applicable",
+            "--postgraduate-loan",
+            "not_applicable",
         ];
         for suffix in [
             vec!["checklist", "--declaration", "A"],

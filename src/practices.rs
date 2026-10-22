@@ -2,11 +2,13 @@
 
 use crate::{payroll::PracticePayrollCommand, practice_billing::PracticeBillingCommand};
 use clap::{Subcommand, ValueEnum};
+use opsd::types::PracticeReportingDetails;
 use opsd::types::{BusinessName, CreatePracticeBusinessRequest};
 use opsd::types::{
     CreatePracticeInvitationRequest, CreatePracticeRequest, EmailAddress, PracticeId,
     PracticeInvitationId, PracticeName, PracticeRole, UpdatePracticeMemberRequest, UserId,
 };
+use std::path::PathBuf;
 
 use crate::{auth::ServerUrl, authenticated_client, print_json};
 
@@ -14,11 +16,22 @@ use crate::{auth::ServerUrl, authenticated_client, print_json};
 pub(crate) enum PracticesCommand {
     /// List practices available to the authenticated user.
     List,
+    /// Read practice reporting details.
+    HmrcReporting { practice_id: PracticeId },
+    /// Replace practice reporting details from a JSON file.
+    UpdateHmrcReporting {
+        practice_id: PracticeId,
+        #[arg(long)]
+        file: PathBuf,
+    },
     /// Create a practice.
     Create {
         /// Practice name.
         #[arg(long)]
         name: PracticeName,
+        /// JSON file containing the practice's HMRC reporting details.
+        #[arg(long)]
+        hmrc_reporting: PathBuf,
     },
     /// Get a practice.
     Get {
@@ -142,11 +155,34 @@ pub(crate) async fn execute(
             let client = authenticated_client(server_url)?;
             print_json(&client.list_practices().await?)?;
         }
-        PracticesCommand::Create { name } => {
+        PracticesCommand::HmrcReporting { practice_id } => print_json(
+            &authenticated_client(server_url)?
+                .get_practice_hmrc_reporting(practice_id)
+                .await?,
+        )?,
+        PracticesCommand::UpdateHmrcReporting { practice_id, file } => {
+            let client = authenticated_client(server_url)?;
+            let request: PracticeReportingDetails =
+                serde_json::from_reader(std::fs::File::open(file)?)?;
+            print_json(
+                &client
+                    .update_practice_hmrc_reporting(practice_id, &request)
+                    .await?,
+            )?;
+        }
+        PracticesCommand::Create {
+            name,
+            hmrc_reporting,
+        } => {
             let client = authenticated_client(server_url)?;
             print_json(
                 &client
-                    .create_practice(&CreatePracticeRequest { name })
+                    .create_practice(&CreatePracticeRequest {
+                        name,
+                        hmrc_reporting: serde_json::from_reader(std::fs::File::open(
+                            hmrc_reporting,
+                        )?)?,
+                    })
                     .await?,
             )?;
         }
