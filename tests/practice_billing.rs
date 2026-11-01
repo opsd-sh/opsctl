@@ -262,8 +262,8 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
             "0",
         ],
         "POST",
-        &format!("businesses/{B}/payroll-subscription"),
-        Some(json!({"expected_version":0})),
+        &format!("businesses/{B}/payroll-subscription?expected_version=0"),
+        None,
         Some(json!({"status":"subscribed","subscribed_at":DATE,"subscription_version":0})),
     );
     check(
@@ -285,8 +285,8 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
             "0",
         ],
         "DELETE",
-        &format!("businesses/{B}/payroll-subscription"),
-        Some(json!({"expected_version":0})),
+        &format!("businesses/{B}/payroll-subscription?expected_version=0"),
+        None,
         None,
     );
     check(
@@ -300,8 +300,8 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
             "0",
         ],
         "POST",
-        &format!("practices/{P}/businesses/{B}/payroll"),
-        Some(json!({"expected_version":0})),
+        &format!("practices/{P}/businesses/{B}/payroll?expected_version=0"),
+        None,
         Some(
             json!({"status":"enabled","enabled_at":DATE,"subscription_version":0,"suspension":null}),
         ),
@@ -326,8 +326,8 @@ fn payroll_commands_preserve_agreement_and_suspension_states() {
             "0",
         ],
         "DELETE",
-        &format!("practices/{P}/businesses/{B}/payroll"),
-        Some(json!({"expected_version":0})),
+        &format!("practices/{P}/businesses/{B}/payroll?expected_version=0"),
+        None,
         None,
     );
 }
