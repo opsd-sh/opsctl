@@ -1,146 +1,11 @@
+mod support;
+
 use serde_json::{Value, json};
-use std::{
-    io::{Read, Write},
-    net::TcpListener,
-    process::{Command, Output},
-    thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+use support::{
+    fixtures::{B, DATE, I, P, U, employment, password_file, run, scheme},
+    http::{check, request, requests},
 };
 
-const P: &str = "11111111-1111-4111-8111-111111111111";
-const B: &str = "22222222-2222-4222-8222-222222222222";
-const U: &str = "33333333-3333-4333-8333-333333333333";
-const I: &str = "44444444-4444-4444-8444-444444444444";
-const DATE: &str = "2026-10-01T12:00:00Z";
-
-fn request(args: &[&str], status: u16, content_type: &str, body: &[u8]) -> (Output, String) {
-    let (output, mut requests) =
-        requests(args, vec![(status, content_type.to_owned(), body.to_vec())]);
-    (output, requests.remove(0))
-}
-fn requests(args: &[&str], responses: Vec<(u16, String, Vec<u8>)>) -> (Output, Vec<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let base_url = format!("http://{}/", listener.local_addr().unwrap());
-
-    let server = thread::spawn(move || {
-        let mut requests = Vec::new();
-        for (status, content_type, body) in responses {
-            let deadline = Instant::now() + Duration::from_secs(10);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(Instant::now() < deadline, "CLI did not send a request");
-                        thread::sleep(Duration::from_millis(10));
-                    }
-                    Err(error) => panic!("{error}"),
-                }
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut request = Vec::new();
-            let mut buffer = [0; 4096];
-            loop {
-                let count = stream.read(&mut buffer).unwrap();
-                assert_ne!(count, 0);
-                request.extend_from_slice(&buffer[..count]);
-                if let Some(end) = request.windows(4).position(|b| b == b"\r\n\r\n") {
-                    let length = String::from_utf8_lossy(&request[..end])
-                        .lines()
-                        .find_map(|line| {
-                            line.to_ascii_lowercase()
-                                .strip_prefix("content-length: ")
-                                .map(|v| v.parse::<usize>().unwrap())
-                        })
-                        .unwrap_or(0);
-                    if request.len() >= end + 4 + length {
-                        break;
-                    }
-                }
-            }
-            write!(stream,"HTTP/1.1 {status} Result\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
-            stream.write_all(&body).unwrap();
-            requests.push(String::from_utf8(request).unwrap());
-        }
-        requests
-    });
-    let config = tempfile::tempdir().unwrap();
-    let path = config.path().join("credentials.json");
-    std::fs::write(
-        &path,
-        serde_json::to_vec(&json!({
-            "server_url":base_url,"access_token":"test-token",
-            "expires_at":SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()+3600,
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
-    }
-    let output = Command::new(env!("CARGO_BIN_EXE_opsctl"))
-        .env("OPSCTL_CONFIG_DIR", config.path())
-        .args(["--base-url", &base_url])
-        .args(args)
-        .output()
-        .unwrap();
-    let request = server.join().unwrap();
-    for request in &request {
-        assert!(
-            request
-                .to_ascii_lowercase()
-                .contains("authorization: bearer test-token\r\n")
-        );
-    }
-    (output, request)
-}
-
-fn check(args: &[&str], method: &str, path: &str, sent: Option<Value>, response: Option<Value>) {
-    let body = response.as_ref().map(Value::to_string).unwrap_or_default();
-    let (output, request) = request(
-        args,
-        if response.is_some() { 200 } else { 204 },
-        "application/json",
-        body.as_bytes(),
-    );
-    assert!(
-        output.status.success(),
-        "{args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        request.lines().next().unwrap(),
-        format!("{method} /v1/{path} HTTP/1.1")
-    );
-    let actual_body = request.split_once("\r\n\r\n").unwrap().1;
-    if let Some(sent) = sent {
-        assert_eq!(serde_json::from_str::<Value>(actual_body).unwrap(), sent);
-    } else {
-        assert!(actual_body.is_empty());
-    }
-    if let Some(response) = response {
-        assert_eq!(
-            serde_json::from_slice::<Value>(&output.stdout).unwrap(),
-            response
-        );
-    } else {
-        assert!(output.stdout.is_empty());
-    }
-}
-
-fn scheme() -> Value {
-    json!({"id":P,"rollover_generation":0,"name":"PAYE","company_utr":null,"employer_reference":"123/AB456","accounts_office_reference":"123PA00045678","tax_year_start":2026,"employment_allowance":"not_claiming","created_at":DATE})
-}
-fn employment() -> Value {
-    json!({"id":I,"employee_id":U,"paye_scheme_id":P,"pay_schedule_id":P,"created_at":DATE,"student_loan":"not_applicable","postgraduate_loan":"not_applicable","normal_weekly_hours_band":"thirty_or_more","monthly_gross_pay_pence":300000,"start_date":"2026-09-01","ni_category":"A","tax_year_start":2026,"tax_code":"1257L","tax_basis":"cumulative","reporting_starter_declaration":"A","previous_employment":{"taxable_pay_pence":0,"tax_paid_pence":0},"starter_information":{"type":"checklist","declaration":"A"}})
-}
-fn run() -> Value {
-    json!({"id":P,"paye_scheme_id":P,"pay_schedule_id":P,"payment_date":"2026-09-30","status":"draft","version":0,"revision_id":null,"available_actions":[],"employment_count":1,"finalized_at":null,"finalized_by_user_id":null,"created_at":DATE})
-}
 fn calculation() -> Value {
     let amounts = json!({"gross_pay_pence":300000,"income_tax_pence":0,"employee_ni_pence":0,"employer_ni_pence":0,"net_pay_pence":300000});
     let zero = json!({"gross_pay_pence":0,"income_tax_pence":0,"employee_ni_pence":0,"employer_ni_pence":0,"net_pay_pence":0});
@@ -466,12 +331,6 @@ fn payment_list_uses_saved_net_pay_and_employee_names() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("finalised run"));
 }
 
-fn password_file() -> tempfile::NamedTempFile {
-    let file = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(file.path(), "secret\r\n").unwrap();
-    file
-}
-
 #[test]
 fn payroll_actions_send_explicit_versions_and_only_required_credentials() {
     let password = password_file();
@@ -549,4 +408,43 @@ fn hmrc_wait_is_reported_without_automatically_retrying() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("HMRC requires a wait"));
     assert!(stderr.contains("42 seconds"));
+}
+
+#[test]
+fn tax_code_notice_can_update_payroll_settings_in_one_request() {
+    for basis in ["cumulative", "non-cumulative"] {
+        let notice = json!({
+            "tax_year_start": 2026,
+            "tax_code": "1257L",
+            "tax_basis": basis.replace('-', "_"),
+        });
+        check(
+            &[
+                "employments",
+                "tax-code-notice",
+                B,
+                I,
+                "--tax-year-start",
+                "2026",
+                "--tax-code",
+                "1257L",
+                "--monthly-gross-pay-pence",
+                "310000",
+                "--ni-category",
+                "C",
+                "--normal-weekly-hours-band",
+                "sixteen_to_less_than_24",
+                basis,
+            ],
+            "PATCH",
+            &format!("businesses/{B}/employments/{I}"),
+            Some(json!({
+                "tax_code_notice": notice,
+                "monthly_gross_pay_pence": 310000,
+                "ni_category": "C",
+                "normal_weekly_hours_band": "sixteen_to_less_than_24",
+            })),
+            Some(employment()),
+        );
+    }
 }
