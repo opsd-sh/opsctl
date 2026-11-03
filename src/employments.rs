@@ -65,6 +65,15 @@ pub(crate) enum EmploymentsCommand {
         /// Unsuffixed tax code; choose the basis with the subcommand.
         #[arg(long)]
         tax_code: String,
+        /// Set regular monthly gross pay in the same update, in whole pence.
+        #[arg(long)]
+        monthly_gross_pay_pence: Option<NonNegativePence>,
+        /// Set the NI category in the same update.
+        #[arg(long)]
+        ni_category: Option<NiCategory>,
+        /// Set the normal weekly hours band in the same update.
+        #[arg(long)]
+        normal_weekly_hours_band: Option<NormalWeeklyHoursBand>,
         #[command(subcommand)]
         basis: NoticeBasisArgs,
     },
@@ -258,6 +267,9 @@ pub(crate) async fn execute(
             employment_id,
             tax_year_start,
             tax_code,
+            monthly_gross_pay_pence,
+            ni_category,
+            normal_weekly_hours_band,
             basis,
         } => print_json(
             &client
@@ -266,9 +278,9 @@ pub(crate) async fn execute(
                     employment_id,
                     &UpdateEmploymentRequest::TaxCodeNotice(ApplyEmploymentTaxCodeNotice {
                         tax_code_notice: basis.into_notice(tax_year_start, tax_code),
-                        monthly_gross_pay_pence: None,
-                        ni_category: None,
-                        normal_weekly_hours_band: None,
+                        monthly_gross_pay_pence,
+                        ni_category,
+                        normal_weekly_hours_band,
                     }),
                 )
                 .await?,
