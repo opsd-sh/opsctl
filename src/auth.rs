@@ -16,6 +16,7 @@ use tokio::time::sleep;
 use url::Url;
 
 const CLIENT_ID: &str = "opsctl";
+const API_SCOPE: &str = "api:full";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const TOKEN_TYPE_HINT: &str = "access_token";
 const MAX_DEVICE_NAME_CHARACTERS: usize = 80;
@@ -268,11 +269,14 @@ async fn start_device_authorization(
 ) -> Result<DeviceAuthorizationResponse, AuthError> {
     let endpoint = server_url.device_authorization_url();
     let device_name = device_name();
+    let resource = server_url.as_url().origin().ascii_serialization();
     let response = client
         .post(endpoint)
         .form(&[
             ("client_id", CLIENT_ID),
             ("device_name", device_name.as_str()),
+            ("scope", API_SCOPE),
+            ("resource", resource.as_str()),
         ])
         .send()
         .await?;
@@ -349,6 +353,7 @@ async fn poll_for_token(
     authorization: &DeviceAuthorizationResponse,
 ) -> Result<TokenResponse, AuthError> {
     let endpoint = server_url.token_url();
+    let resource = server_url.as_url().origin().ascii_serialization();
     let deadline = Instant::now() + Duration::from_secs(authorization.expires_in);
     let mut interval = Duration::from_secs(authorization.interval.max(1));
 
@@ -363,6 +368,8 @@ async fn poll_for_token(
             .form(&[
                 ("grant_type", DEVICE_GRANT_TYPE),
                 ("device_code", authorization.device_code.as_str()),
+                ("scope", API_SCOPE),
+                ("resource", resource.as_str()),
                 ("client_id", CLIENT_ID),
             ])
             .send()
@@ -683,5 +690,90 @@ mod tests {
             load_credentials_from(&path),
             Err(AuthError::InsecureCredentialPermissions { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use std::{io::Read, net::TcpListener, thread};
+
+    #[tokio::test]
+    async fn device_authorization_and_exchange_send_explicit_contract() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server_url = ServerUrl::from_override(Url::parse(&origin).unwrap()).unwrap();
+        let worker = thread::spawn(move || {
+            let mut requests = Vec::new();
+            for body in [
+                r#"{"device_code":"device-code","user_code":"ABCD-EFGH","verification_uri":"https://app.example/device","verification_uri_complete":"https://app.example/device?user_code=ABCD-EFGH","expires_in":60,"interval":1}"#,
+                r#"{"access_token":"issued-token","token_type":"Bearer","expires_in":3600,"scope":"api:full"}"#,
+            ] {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "no OAuth request received");
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(e) => panic!("{e}"),
+                    }
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut buffer = [0; 4096];
+                    let count = stream.read(&mut buffer).unwrap();
+                    assert_ne!(count, 0);
+                    request.extend_from_slice(&buffer[..count]);
+                    if let Some(end) = request.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let length = String::from_utf8_lossy(&request[..end])
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length: ")
+                                    .map(|length| length.parse::<usize>().unwrap())
+                            })
+                            .unwrap();
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                }
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                requests.push(String::from_utf8(request).unwrap());
+            }
+            requests
+        });
+        let client = Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap();
+        let authorization = start_device_authorization(&client, &server_url)
+            .await
+            .unwrap();
+        let token = poll_for_token(&client, &server_url, &authorization)
+            .await
+            .unwrap();
+        assert_eq!(token.access_token, "issued-token");
+        let requests = worker.join().unwrap();
+        for (request, path) in requests
+            .iter()
+            .zip(["/oauth/device/authorization", "/oauth/token"])
+        {
+            assert!(request.starts_with(&format!("POST {path} HTTP/1.1")));
+            let (_, body) = request.split_once("\r\n\r\n").unwrap();
+            let form: std::collections::HashMap<_, _> =
+                url::form_urlencoded::parse(body.as_bytes())
+                    .into_owned()
+                    .collect();
+            assert_eq!(form["client_id"], "opsctl");
+            assert_eq!(form["scope"], "api:full");
+            assert_eq!(form["resource"], origin);
+        }
     }
 }
