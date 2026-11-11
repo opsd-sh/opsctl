@@ -14,9 +14,14 @@ The CLI starts an OAuth device authorization, attempts to open the Opsd
 website, and also prints the verification URL and user code for terminals that
 cannot open a browser. The command waits until the website approval completes.
 
-Login explicitly requests the `api:full` scope and binds the token to the server
-origin selected by `--base-url` (production by default). That origin must match
-the server’s configured `OAUTH_RESOURCE`. REST and MCP share the same resource.
+Login requests the `api:read`, `api:write`, and `hmrc:submit` scopes. On the
+consent page, you can approve any nonempty subset of these independent
+permissions. The CLI receives a token with the permissions you approve;
+commands requiring permissions you did not grant will be rejected by the API.
+
+The token is bound to the server origin selected by `--base-url` (production by
+default). That origin must match the server’s configured `OAUTH_RESOURCE`.
+REST and MCP share the same resource.
 
 Inspect or remove the saved login with:
 
