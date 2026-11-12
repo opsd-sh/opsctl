@@ -16,7 +16,7 @@ use tokio::time::sleep;
 use url::Url;
 
 const CLIENT_ID: &str = "opsctl";
-const API_SCOPE: &str = "api:full";
+const API_SCOPES: &str = "api:read api:write hmrc:submit";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const TOKEN_TYPE_HINT: &str = "access_token";
 const MAX_DEVICE_NAME_CHARACTERS: usize = 80;
@@ -275,7 +275,7 @@ async fn start_device_authorization(
         .form(&[
             ("client_id", CLIENT_ID),
             ("device_name", device_name.as_str()),
-            ("scope", API_SCOPE),
+            ("scope", API_SCOPES),
             ("resource", resource.as_str()),
         ])
         .send()
@@ -368,7 +368,6 @@ async fn poll_for_token(
             .form(&[
                 ("grant_type", DEVICE_GRANT_TYPE),
                 ("device_code", authorization.device_code.as_str()),
-                ("scope", API_SCOPE),
                 ("resource", resource.as_str()),
                 ("client_id", CLIENT_ID),
             ])
@@ -700,6 +699,31 @@ mod contract_tests {
 
     #[tokio::test]
     async fn device_authorization_and_exchange_send_explicit_contract() {
+        assert_device_authorization_contract("api:read api:write hmrc:submit").await;
+    }
+
+    #[tokio::test]
+    async fn device_authorization_accepts_reduced_grants() {
+        for scope in [
+            "api:read",
+            "api:write",
+            "hmrc:submit",
+            "api:read api:write",
+            "api:read hmrc:submit",
+            "api:write hmrc:submit",
+        ] {
+            assert_device_authorization_contract(scope).await;
+        }
+    }
+
+    async fn assert_device_authorization_contract(granted_scope: &str) {
+        let token_response = serde_json::json!({
+            "access_token": "issued-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": granted_scope,
+        })
+        .to_string();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
@@ -708,7 +732,7 @@ mod contract_tests {
             let mut requests = Vec::new();
             for body in [
                 r#"{"device_code":"device-code","user_code":"ABCD-EFGH","verification_uri":"https://app.example/device","verification_uri_complete":"https://app.example/device?user_code=ABCD-EFGH","expires_in":60,"interval":1}"#,
-                r#"{"access_token":"issued-token","token_type":"Bearer","expires_in":3600,"scope":"api:full"}"#,
+                token_response.as_str(),
             ] {
                 let deadline = Instant::now() + Duration::from_secs(10);
                 let mut stream = loop {
@@ -772,8 +796,17 @@ mod contract_tests {
                     .into_owned()
                     .collect();
             assert_eq!(form["client_id"], "opsctl");
-            assert_eq!(form["scope"], "api:full");
             assert_eq!(form["resource"], origin);
+            if path == "/oauth/device/authorization" {
+                assert_eq!(form["scope"], "api:read api:write hmrc:submit");
+            } else {
+                assert!(
+                    !form.contains_key("scope"),
+                    "token polling must inherit the approved grant: {granted_scope}"
+                );
+                assert_eq!(form["grant_type"], DEVICE_GRANT_TYPE);
+                assert_eq!(form["device_code"], "device-code");
+            }
         }
     }
 }
