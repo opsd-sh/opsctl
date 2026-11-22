@@ -2,6 +2,10 @@
 
 CLI for the Opsd API.
 
+To build this director-pay branch locally, check out the matching
+`feature/al-director-pay` branch of `opsd-rust` alongside `opsctl`.
+Run `cargo build --locked` in the CLI checkout. It uses the local 0.5.0 SDK.
+
 ## Authentication
 
 Sign in before calling the public API:
@@ -185,6 +189,7 @@ Read or update employment defaults, or supply replacement starter information:
 ```sh
 opsctl employments get BUSINESS_ID EMPLOYMENT_ID
 opsctl employments update BUSINESS_ID EMPLOYMENT_ID --monthly-gross-pay-pence 320000
+opsctl employments update BUSINESS_ID EMPLOYMENT_ID --ni-method AL --director-appointed-on 2026-10-01
 opsctl employments update BUSINESS_ID EMPLOYMENT_ID checklist --declaration B
 opsctl employments tax-code-notice BUSINESS_ID EMPLOYMENT_ID \
   --tax-year-start 2026 --tax-code 1257L cumulative \
@@ -198,12 +203,19 @@ employment's YTD. `non-cumulative` accepts no previous-amount flags. Starter
 changes and tax notices use separate commands; starter changes are restricted
 after finalisation or an HMRC notice. Tax notices affect existing draft previews.
 
-Run payroll and adjust the saved gross input where needed:
+Both employment creation and update accept `--ni-method AL --director-appointed-on YYYY-MM-DD`.
+Select AL with the director’s agreement when regular pay normally exceeds the
+Lower Earnings Limit. Supply the applicable NI category separately. On update,
+omit the method to keep it, or use `--ni-method ordinary` to request ordinary NI.
+
+Run payroll and adjust the saved payment where needed:
 
 ```sh
 opsctl payroll-runs create BUSINESS_ID --paye-scheme-id SCHEME_ID \
   --pay-schedule-id SCHEDULE_ID --payment-date 2026-10-30
 opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --gross-pay-pence 150000
+# For an AL director receiving their last expected payment:
+opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --final-director-payment true
 opsctl payroll-runs preview BUSINESS_ID RUN_ID
 opsctl payroll-runs finalize BUSINESS_ID RUN_ID --expected-version VERSION \
   --sender-id SENDER_ID --password-file hmrc-password.txt
@@ -214,7 +226,12 @@ opsctl payroll-runs discard BUSINESS_ID DRAFT_RUN_ID
 ```
 
 All monetary flags use whole pence. Monthly salaries are not automatically
-prorated. `update-payment` changes that draft's gross input and/or `--normal-weekly-hours-band`. `preview` is
+prorated. Send pay, hours or the director payment decision separately or together.
+For AL, pass `--final-director-payment false` for a regular payday or `true`
+for the last expected payment in the tax year or directorship. Month 12 and
+later payments after an annual reassessment in that year use annual NI automatically.
+Preview and saved calculations show the annual assessment flag, any warnings,
+the employee NI deducted from pay and any shortfall funded by the employer. `preview` is
 read-only and uses current tax settings; `get` shows saved inputs and, after
 finalisation, immutable calculation results. `payments` requires a finalised run
 and prints JSON containing employee IDs, current names, saved net amounts and

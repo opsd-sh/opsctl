@@ -19,6 +19,159 @@ fn calculation() -> Value {
     payment["inputs"]["previous_ni_earnings_ytd"] = bands;
     json!({"payroll_run_id":P,"payment_date":"2026-09-30","tax_year_start":2026,"tax_month":6,"payments":[payment],"totals":amounts})
 }
+#[test]
+fn director_methods_and_final_payment_decisions_reach_the_api() {
+    let method = json!({"method":"AL","appointed_on":"2025-10-01"});
+    let mut director = employment();
+    director["ni_method"] = method.clone();
+    let path = format!("businesses/{B}/employments");
+    check(
+        &[
+            "employments",
+            "create",
+            B,
+            "--employee-id",
+            U,
+            "--paye-scheme-id",
+            P,
+            "--pay-schedule-id",
+            P,
+            "--start-date",
+            "2026-09-01",
+            "--ni-category",
+            "A",
+            "--ni-method",
+            "AL",
+            "--director-appointed-on",
+            "2025-10-01",
+            "--monthly-gross-pay-pence",
+            "300000",
+            "--normal-weekly-hours-band",
+            "thirty_or_more",
+            "--student-loan",
+            "not_applicable",
+            "--postgraduate-loan",
+            "not_applicable",
+            "not-provided",
+        ],
+        "POST",
+        &path,
+        Some(
+            json!({"employee_id":U,"paye_scheme_id":P,"pay_schedule_id":P,"start_date":"2026-09-01",
+            "ni_category":"A","ni_method":method,"student_loan":"not_applicable","postgraduate_loan":"not_applicable",
+            "normal_weekly_hours_band":"thirty_or_more","monthly_gross_pay_pence":300000,"starter_information":{"type":"not_provided"}}),
+        ),
+        Some(director.clone()),
+    );
+    check(
+        &[
+            "employments",
+            "update",
+            B,
+            I,
+            "--ni-method",
+            "AL",
+            "--director-appointed-on",
+            "2025-10-01",
+        ],
+        "PATCH",
+        &format!("{path}/{I}"),
+        Some(json!({"ni_method":method})),
+        Some(director.clone()),
+    );
+    director["ni_method"] = json!({"method":"ordinary"});
+    check(
+        &["employments", "update", B, I, "--ni-method", "ordinary"],
+        "PATCH",
+        &format!("{path}/{I}"),
+        Some(json!({"ni_method":{"method":"ordinary"}})),
+        Some(director),
+    );
+
+    let payment_path = format!("businesses/{B}/payroll-runs/{P}/employments/{I}");
+    for (flag, expected) in [("false", false), ("true", true)] {
+        check(
+            &[
+                "payroll-runs",
+                "update-payment",
+                B,
+                P,
+                I,
+                "--final-director-payment",
+                flag,
+            ],
+            "PATCH",
+            &payment_path,
+            Some(json!({"final_director_payment":expected})),
+            None,
+        );
+    }
+    check(
+        &[
+            "payroll-runs",
+            "update-payment",
+            B,
+            P,
+            I,
+            "--final-director-payment",
+            "true",
+            "--gross-pay-pence",
+            "10000",
+            "--normal-weekly-hours-band",
+            "other",
+        ],
+        "PATCH",
+        &payment_path,
+        Some(
+            json!({"final_director_payment":true,"gross_pay_pence":10000,"normal_weekly_hours_band":"other"}),
+        ),
+        None,
+    );
+}
+
+#[test]
+fn director_preview_and_saved_run_show_ni_funding_and_warnings() {
+    let mut saved = finalised();
+    saved["payments"][0]["final_director_payment"] = json!(true);
+    saved["payments"][0]["gross_pay_pence"] = json!(12500);
+    let calculation = &mut saved["calculation"];
+    calculation["warnings"] =
+        json!([{"employee_id":U,"message":"Review separate NI calculations."}]);
+    let payment = &mut calculation["payments"][0];
+    payment["inputs"]["ni_method"] = json!({"method":"AL","appointed_on":"2025-10-01"});
+    payment["inputs"]["annual_director_ni"] = json!(true);
+    payment["inputs"]["ni_category"] = json!("A");
+    payment["inputs"]["tax_code"] = json!("BR");
+    payment["inputs"]["previous_ytd"] = json!({"gross_pay_pence":2510000,"income_tax_pence":502000,
+        "employee_ni_pence":66950,"employer_ni_pence":370245,"net_pay_pence":1941050});
+    payment["ytd"] = json!({"gross_pay_pence":2522500,"income_tax_pence":504500,
+        "employee_ni_pence":101240,"employer_ni_pence":303375,"net_pay_pence":1941050});
+    payment["employee_ni_pence"] = json!(34290);
+    payment["employee_ni_deducted_pence"] = json!(10000);
+    payment["employer_funded_employee_ni_pence"] = json!(24290);
+    payment["gross_pay_pence"] = json!(12500);
+    payment["income_tax_pence"] = json!(2500);
+    payment["employer_ni_pence"] = json!(-66870);
+    payment["net_pay_pence"] = json!(0);
+    calculation["totals"] = json!({"gross_pay_pence":12500,"income_tax_pence":2500,
+        "employee_ni_pence":34290,"employer_ni_pence":-66870,"net_pay_pence":0});
+    let path = format!("businesses/{B}/payroll-runs/{P}");
+    check(
+        &["payroll-runs", "preview", B, P],
+        "GET",
+        &format!("{path}/preview"),
+        None,
+        Some(calculation.clone()),
+    );
+    check(
+        &["payroll-runs", "get", B, P],
+        "GET",
+        &path,
+        None,
+        Some(saved),
+    );
+}
+
 fn finalised() -> Value {
     let mut v = run();
     v["status"] = json!("accepted");

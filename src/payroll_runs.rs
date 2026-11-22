@@ -124,6 +124,9 @@ pub(crate) enum PayrollRunsCommand {
         gross_pay_pence: Option<NonNegativePence>,
         #[arg(long)]
         normal_weekly_hours_band: Option<NormalWeeklyHoursBand>,
+        /// For an AL director, true for the last expected payment this tax year or directorship, false for a regular payment.
+        #[arg(long, action = clap::ArgAction::Set)]
+        final_director_payment: Option<bool>,
     },
     /// Delete a draft payroll run. Finalised runs cannot be discarded.
     Discard {
@@ -292,18 +295,26 @@ pub(crate) async fn execute(
             employment_id,
             gross_pay_pence,
             normal_weekly_hours_band,
+            final_director_payment,
         } => {
-            let request = match (gross_pay_pence, normal_weekly_hours_band) {
-                (Some(gross_pay_pence), normal_weekly_hours_band) => {
+            let request = match (gross_pay_pence, normal_weekly_hours_band, final_director_payment) {
+                (gross_pay_pence, normal_weekly_hours_band, Some(final_director_payment)) => {
+                    UpdatePayrollPaymentRequest::DirectorPayment {
+                        final_director_payment,
+                        gross_pay_pence,
+                        normal_weekly_hours_band,
+                    }
+                }
+                (Some(gross_pay_pence), normal_weekly_hours_band, None) => {
                     UpdatePayrollPaymentRequest::GrossPay {
                         gross_pay_pence,
                         normal_weekly_hours_band,
                     }
                 }
-                (None, Some(normal_weekly_hours_band)) => UpdatePayrollPaymentRequest::HoursBand {
+                (None, Some(normal_weekly_hours_band), None) => UpdatePayrollPaymentRequest::HoursBand {
                     normal_weekly_hours_band,
                 },
-                (None, None) => return Err("supply gross pay or normal weekly hours band".into()),
+                (None, None, None) => return Err("supply gross pay, normal weekly hours band or the final director payment decision".into()),
             };
             client
                 .update_payroll_payment(business_id, payroll_run_id, employment_id, &request)
