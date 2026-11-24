@@ -2,10 +2,6 @@
 
 CLI for the Opsd API.
 
-To build this director-pay branch locally, check out the matching
-`feature/al-director-pay` branch of `opsd-rust` alongside `opsctl`.
-Run `cargo build --locked` in the CLI checkout. It uses the local 0.5.0 SDK.
-
 ## Authentication
 
 Sign in before calling the public API:

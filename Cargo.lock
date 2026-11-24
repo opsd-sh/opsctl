@@ -742,6 +742,8 @@ dependencies = [
 [[package]]
 name = "opsd"
 version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cabf3b26fb7fbf3e8c848bced3b24b0615dbed82b355ab44672f9bc1abf12b14"
 dependencies = [
  "reqwest",
  "serde",
