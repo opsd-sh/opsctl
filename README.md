@@ -164,7 +164,22 @@ opsctl employments create BUSINESS_ID --employee-id EMPLOYEE_ID \
 Choose `claiming` or `not_claiming` explicitly for Employment Allowance. The
 schedule frequency defaults to `monthly`, currently the only supported value.
 `employments new` is an alias for `employments create`; both create a new
-employment with zero opening YTD. Migrated employments are not supported yet.
+employment with zero opening YTD. To continue a job already paid in another
+system, use `opsctl employments import BUSINESS_ID --file employment.json`.
+Supply the same employee, scheme, schedule, original start date, hours, pay,
+NI and loan fields as a new job. Include a `payroll_import` object containing
+the old payroll ID, last payment date, current tax treatment and year-to-date
+figures. The first new payment must fall in a later UK tax month. See the
+[import example](https://github.com/opsd-sh/opserver/blob/main/README.md#switching-payroll-software).
+
+Read an existing import with `opsctl employments get-import BUSINESS_ID EMPLOYMENT_ID`.
+Before the first finalised payment, correct a mistyped ID with
+`opsctl employments amend-import BUSINESS_ID EMPLOYMENT_ID --payroll-id 00024`.
+Use `--file corrections.json` for payday or opening balance corrections.
+
+Use `opsctl employments discard BUSINESS_ID EMPLOYMENT_ID` to delete an employment
+created in error, including its imported balances. Remove it from all drafts first.
+Any finalised payment for the employment permanently blocks deletion.
 
 The final subcommand records the starter information. Alternatives to
 `checklist --declaration A` are:
@@ -199,9 +214,12 @@ opsctl employments tax-code-notice BUSINESS_ID EMPLOYMENT_ID \
 For a cumulative notice, omit both previous-amount flags to retain existing
 cumulative totals. Switching from W1/M1 needs both figures, including explicit
 zeros where appropriate. Supplied totals replace earlier-job amounts, never this
-employment's YTD. `non-cumulative` accepts no previous-amount flags. Starter
-changes and tax notices use separate commands; starter changes are restricted
-after finalisation or an HMRC notice. Tax notices affect existing draft previews.
+employment's YTD. `non-cumulative` accepts no previous-amount flags. Tax notices
+affect existing draft previews. After a notice, a local starter’s date can be
+corrected before their first finalised payment with
+`opsctl employments update BUSINESS_ID EMPLOYMENT_ID --start-date 2026-06-03`.
+Send the date on its own to preserve the notice’s PAYE settings. The first
+finalised payment locks the date and starter evidence, including after reopening.
 
 Both employment creation and update accept `--ni-method AL --director-appointed-on YYYY-MM-DD`.
 Select AL with the director’s agreement when regular pay normally exceeds the

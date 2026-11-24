@@ -601,3 +601,89 @@ fn tax_code_notice_can_update_payroll_settings_in_one_request() {
         );
     }
 }
+
+#[test]
+fn discard_unused_employment() {
+    check(
+        &["employments", "discard", B, I],
+        "DELETE",
+        &format!("businesses/{B}/employments/{I}"),
+        None,
+        None,
+    );
+}
+
+#[test]
+fn import_employment_preserves_payroll_id_and_opening_figures() {
+    let body = json!({
+        "employee_id": U, "paye_scheme_id": P, "pay_schedule_id": P, "start_date": "2020-05-01",
+        "ni_category":"A", "student_loan":"not_applicable","postgraduate_loan":"not_applicable",
+        "normal_weekly_hours_band":"thirty_or_more","monthly_gross_pay_pence":300000,
+        "payroll_import":{
+            "payroll_id":"00042","tax_year_start":2026,"last_payment_date":"2026-10-30",
+            "tax_code":"BR","tax_treatment":{"basis":"non_cumulative"},
+            "gross_pay_pence":900000,"taxable_pay_pence":920000,"income_tax_pence":184000,"net_pay_pence":669152,
+            "ni":{"gross_earnings_pence":900000,"employee_ni_pence":46848,"employer_ni_pence":116235,
+                  "at_lel_pence":167700,"above_lel_to_pt_pence":146700,"above_pt_to_uel_pence":585600}
+        }
+    });
+    let file = tempfile::NamedTempFile::new().unwrap();
+    serde_json::to_writer(file.as_file(), &body).unwrap();
+    let mut saved = employment();
+    saved["payroll_id"] = json!("00042");
+    saved["last_external_payment_date"] = json!("2026-10-30");
+    saved["starter_information"] = Value::Null;
+    saved["reporting_starter_declaration"] = Value::Null;
+    check(
+        &[
+            "employments",
+            "import",
+            B,
+            "--file",
+            file.path().to_str().unwrap(),
+        ],
+        "POST",
+        &format!("businesses/{B}/employments"),
+        Some(body),
+        Some(saved),
+    );
+}
+
+#[test]
+fn read_and_amend_payroll_import() {
+    let path = format!("businesses/{B}/employments/{I}/payroll-import");
+    let opening = json!({"payroll_id":"00024","tax_year_start":2026,"last_payment_date":"2026-08-31",
+        "gross_pay_pence":0,"taxable_pay_pence":0,"net_pay_pence":0,"income_tax_pence":0,
+        "ni":{"gross_earnings_pence":0,"employee_ni_pence":0,"employer_ni_pence":0,"at_lel_pence":0,"above_lel_to_pt_pence":0,"above_pt_to_uel_pence":0},"director_history":null});
+    check(
+        &["employments", "get-import", B, I],
+        "GET",
+        &path,
+        None,
+        Some(opening.clone()),
+    );
+    check(
+        &["employments", "amend-import", B, I, "--payroll-id", "00024"],
+        "PATCH",
+        &path,
+        Some(json!({"payroll_id":"00024"})),
+        Some(opening.clone()),
+    );
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let changes = json!({"last_payment_date":"2026-08-31","director_history":null});
+    serde_json::to_writer(file.as_file(), &changes).unwrap();
+    check(
+        &[
+            "employments",
+            "amend-import",
+            B,
+            I,
+            "--file",
+            file.path().to_str().unwrap(),
+        ],
+        "PATCH",
+        &path,
+        Some(changes),
+        Some(opening),
+    );
+}
