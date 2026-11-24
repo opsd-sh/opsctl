@@ -160,7 +160,22 @@ opsctl employments create BUSINESS_ID --employee-id EMPLOYEE_ID \
 Choose `claiming` or `not_claiming` explicitly for Employment Allowance. The
 schedule frequency defaults to `monthly`, currently the only supported value.
 `employments new` is an alias for `employments create`; both create a new
-employment with zero opening YTD. Migrated employments are not supported yet.
+employment with zero opening YTD. To continue a job already paid in another
+system, use `opsctl employments import BUSINESS_ID --file employment.json`.
+Supply the same employee, scheme, schedule, original start date, hours, pay,
+NI and loan fields as a new job. Include a `payroll_import` object containing
+the old payroll ID, last payment date, current tax treatment and year-to-date
+figures. The first new payment must fall in a later UK tax month. See the
+[import example](https://github.com/opsd-sh/opserver/blob/main/README.md#switching-payroll-software).
+
+Read an existing import with `opsctl employments get-import BUSINESS_ID EMPLOYMENT_ID`.
+Before the first finalised payment, correct a mistyped ID with
+`opsctl employments amend-import BUSINESS_ID EMPLOYMENT_ID --payroll-id 00024`.
+Use `--file corrections.json` for payday or opening balance corrections.
+
+Use `opsctl employments discard BUSINESS_ID EMPLOYMENT_ID` to delete an employment
+created in error, including its imported balances. Remove it from all drafts first.
+Any finalised payment for the employment permanently blocks deletion.
 
 The final subcommand records the starter information. Alternatives to
 `checklist --declaration A` are:
@@ -185,6 +200,7 @@ Read or update employment defaults, or supply replacement starter information:
 ```sh
 opsctl employments get BUSINESS_ID EMPLOYMENT_ID
 opsctl employments update BUSINESS_ID EMPLOYMENT_ID --monthly-gross-pay-pence 320000
+opsctl employments update BUSINESS_ID EMPLOYMENT_ID --ni-method AL --director-appointed-on 2026-10-01
 opsctl employments update BUSINESS_ID EMPLOYMENT_ID checklist --declaration B
 opsctl employments tax-code-notice BUSINESS_ID EMPLOYMENT_ID \
   --tax-year-start 2026 --tax-code 1257L cumulative \
@@ -194,16 +210,26 @@ opsctl employments tax-code-notice BUSINESS_ID EMPLOYMENT_ID \
 For a cumulative notice, omit both previous-amount flags to retain existing
 cumulative totals. Switching from W1/M1 needs both figures, including explicit
 zeros where appropriate. Supplied totals replace earlier-job amounts, never this
-employment's YTD. `non-cumulative` accepts no previous-amount flags. Starter
-changes and tax notices use separate commands; starter changes are restricted
-after finalisation or an HMRC notice. Tax notices affect existing draft previews.
+employment's YTD. `non-cumulative` accepts no previous-amount flags. Tax notices
+affect existing draft previews. After a notice, a local starter’s date can be
+corrected before their first finalised payment with
+`opsctl employments update BUSINESS_ID EMPLOYMENT_ID --start-date 2026-06-03`.
+Send the date on its own to preserve the notice’s PAYE settings. The first
+finalised payment locks the date and starter evidence, including after reopening.
 
-Run payroll and adjust the saved gross input where needed:
+Both employment creation and update accept `--ni-method AL --director-appointed-on YYYY-MM-DD`.
+Select AL with the director’s agreement when regular pay normally exceeds the
+Lower Earnings Limit. Supply the applicable NI category separately. On update,
+omit the method to keep it, or use `--ni-method ordinary` to request ordinary NI.
+
+Run payroll and adjust the saved payment where needed:
 
 ```sh
 opsctl payroll-runs create BUSINESS_ID --paye-scheme-id SCHEME_ID \
   --pay-schedule-id SCHEDULE_ID --payment-date 2026-10-30
 opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --gross-pay-pence 150000
+# For an AL director receiving their last expected payment:
+opsctl payroll-runs update-payment BUSINESS_ID RUN_ID EMPLOYMENT_ID --final-director-payment true
 opsctl payroll-runs preview BUSINESS_ID RUN_ID
 opsctl payroll-runs finalize BUSINESS_ID RUN_ID --expected-version VERSION \
   --sender-id SENDER_ID --password-file hmrc-password.txt
@@ -214,7 +240,12 @@ opsctl payroll-runs discard BUSINESS_ID DRAFT_RUN_ID
 ```
 
 All monetary flags use whole pence. Monthly salaries are not automatically
-prorated. `update-payment` changes that draft's gross input and/or `--normal-weekly-hours-band`. `preview` is
+prorated. Send pay, hours or the director payment decision separately or together.
+For AL, pass `--final-director-payment false` for a regular payday or `true`
+for the last expected payment in the tax year or directorship. Month 12 and
+later payments after an annual reassessment in that year use annual NI automatically.
+Preview and saved calculations show the annual assessment flag, any warnings,
+the employee NI deducted from pay and any shortfall funded by the employer. `preview` is
 read-only and uses current tax settings; `get` shows saved inputs and, after
 finalisation, immutable calculation results. `payments` requires a finalised run
 and prints JSON containing employee IDs, current names, saved net amounts and

@@ -1,6 +1,6 @@
 //! Employment onboarding, defaults and HMRC notices.
 use crate::print_json;
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use opsd::{OpsdClient, types::*};
 
 #[derive(Debug, Subcommand)]
@@ -12,7 +12,35 @@ pub(crate) enum EmploymentsCommand {
         business_id: BusinessId,
         employment_id: EmploymentId,
     },
-    /// Create a new employment with zero opening YTD. Migrated employments are not yet supported.
+    /// Delete an employment and its opening balances after removing it from all drafts, before its first finalised payment.
+    Discard {
+        business_id: BusinessId,
+        employment_id: EmploymentId,
+    },
+    /// Continue an existing job using its payroll ID and opening balances.
+    Import {
+        business_id: BusinessId,
+        /// JSON employment request including payroll_import and the current payroll settings.
+        #[arg(long)]
+        file: std::path::PathBuf,
+    },
+    /// Read the external payroll ID, last payday and opening balances.
+    GetImport {
+        business_id: BusinessId,
+        employment_id: EmploymentId,
+    },
+    /// Correct an existing import before its first finalised payment.
+    AmendImport {
+        business_id: BusinessId,
+        employment_id: EmploymentId,
+        /// Correct only the external payroll ID. Leading zeros are preserved.
+        #[arg(long, required_unless_present = "file", conflicts_with = "file")]
+        payroll_id: Option<String>,
+        /// JSON object containing only the fields to correct.
+        #[arg(long)]
+        file: Option<std::path::PathBuf>,
+    },
+    /// Create a new starter with zero opening YTD.
     #[command(alias = "new")]
     Create {
         business_id: BusinessId,
@@ -27,6 +55,8 @@ pub(crate) enum EmploymentsCommand {
         start_date: EmploymentDate,
         #[arg(long)]
         ni_category: NiCategory,
+        #[command(flatten)]
+        ni_method: NiMethodArgs,
         /// Regular monthly gross pay, in whole pence (no automatic proration).
         #[arg(long)]
         monthly_gross_pay_pence: NonNegativePence,
@@ -49,6 +79,8 @@ pub(crate) enum EmploymentsCommand {
         start_date: Option<EmploymentDate>,
         #[arg(long)]
         ni_category: Option<NiCategory>,
+        #[command(flatten)]
+        ni_method: NiMethodArgs,
         #[arg(long)]
         monthly_gross_pay_pence: Option<NonNegativePence>,
         #[arg(long)]
@@ -77,6 +109,41 @@ pub(crate) enum EmploymentsCommand {
         #[command(subcommand)]
         basis: NoticeBasisArgs,
     },
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum NiMethodChoice {
+    Ordinary,
+    #[value(name = "AL")]
+    DirectorAlternative,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct NiMethodArgs {
+    /// Choose AL with the director’s agreement when regular pay normally exceeds the Lower Earnings Limit.
+    #[arg(long, value_enum)]
+    ni_method: Option<NiMethodChoice>,
+    /// Date of appointment as director (YYYY-MM-DD), required for AL.
+    #[arg(long, requires = "ni_method", required_if_eq("ni_method", "AL"))]
+    director_appointed_on: Option<EmploymentDate>,
+}
+
+impl NiMethodArgs {
+    fn into_method(self) -> Result<Option<EmploymentNiMethod>, &'static str> {
+        match (self.ni_method, self.director_appointed_on) {
+            (None, None) => Ok(None),
+            (Some(NiMethodChoice::Ordinary), None) => Ok(Some(EmploymentNiMethod::Ordinary {})),
+            (Some(NiMethodChoice::DirectorAlternative), Some(appointed_on)) => {
+                Ok(Some(EmploymentNiMethod::DirectorAlternative {
+                    appointed_on,
+                }))
+            }
+            (Some(NiMethodChoice::DirectorAlternative), None) => {
+                Err("AL requires --director-appointed-on")
+            }
+            (_, Some(_)) => Err("--director-appointed-on requires --ni-method AL"),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -196,6 +263,46 @@ pub(crate) async fn execute(
             business_id,
             employment_id,
         } => print_json(&client.get_employment(business_id, employment_id).await?)?,
+        EmploymentsCommand::Discard {
+            business_id,
+            employment_id,
+        } => {
+            client
+                .discard_employment(business_id, employment_id)
+                .await?
+        }
+        EmploymentsCommand::GetImport {
+            business_id,
+            employment_id,
+        } => print_json(
+            &client
+                .get_employment_payroll_import(business_id, employment_id)
+                .await?,
+        )?,
+        EmploymentsCommand::AmendImport {
+            business_id,
+            employment_id,
+            payroll_id,
+            file,
+        } => {
+            let changes = match file {
+                Some(path) => serde_json::from_reader(std::fs::File::open(path)?)?,
+                None => PayrollImportAmendment {
+                    payroll_id,
+                    ..Default::default()
+                },
+            };
+            print_json(
+                &client
+                    .amend_employment_payroll_import(business_id, employment_id, &changes)
+                    .await?,
+            )?;
+        }
+        EmploymentsCommand::Import { business_id, file } => {
+            let request: ImportEmploymentRequest =
+                serde_json::from_reader(std::fs::File::open(file)?)?;
+            print_json(&client.import_employment(business_id, &request).await?)?;
+        }
         EmploymentsCommand::Create {
             business_id,
             employee_id,
@@ -203,6 +310,7 @@ pub(crate) async fn execute(
             pay_schedule_id,
             start_date,
             ni_category,
+            ni_method,
             monthly_gross_pay_pence,
             normal_weekly_hours_band,
             student_loan,
@@ -218,6 +326,7 @@ pub(crate) async fn execute(
                         pay_schedule_id,
                         start_date,
                         ni_category,
+                        ni_method: ni_method.into_method()?,
                         monthly_gross_pay_pence,
                         normal_weekly_hours_band,
                         student_loan,
@@ -232,12 +341,15 @@ pub(crate) async fn execute(
             employment_id,
             start_date,
             ni_category,
+            ni_method,
             monthly_gross_pay_pence,
             normal_weekly_hours_band,
             starter,
         } => {
+            let ni_method = ni_method.into_method()?;
             if start_date.is_none()
                 && ni_category.is_none()
+                && ni_method.is_none()
                 && monthly_gross_pay_pence.is_none()
                 && normal_weekly_hours_band.is_none()
                 && starter.is_none()
@@ -254,6 +366,7 @@ pub(crate) async fn execute(
                         &UpdateEmploymentRequest::Settings(UpdateEmploymentSettings {
                             start_date,
                             ni_category,
+                            ni_method,
                             monthly_gross_pay_pence,
                             normal_weekly_hours_band,
                             starter_information: starter.map(Into::into),
@@ -300,6 +413,36 @@ mod tests {
     }
     const B: &str = "22222222-2222-4222-8222-222222222222";
     const E: &str = "77777777-7777-4777-8777-777777777777";
+    #[test]
+    fn director_appointment_requires_al_and_a_valid_date() {
+        for flags in [
+            vec!["--ni-method", "AN"],
+            vec!["--ni-method", "AL"],
+            vec!["--director-appointed-on", "2026-10-01"],
+            vec!["--ni-method", "AL", "--director-appointed-on", "2026-02-30"],
+        ] {
+            assert!(
+                TestCli::try_parse_from(["opsctl", "update", B, E].into_iter().chain(flags))
+                    .is_err()
+            );
+        }
+        let cli = TestCli::try_parse_from([
+            "opsctl",
+            "update",
+            B,
+            E,
+            "--ni-method",
+            "ordinary",
+            "--director-appointed-on",
+            "2026-10-01",
+        ])
+        .unwrap();
+        let EmploymentsCommand::Update { ni_method, .. } = cli.command else {
+            unreachable!()
+        };
+        assert!(ni_method.into_method().is_err());
+    }
+
     #[test]
     fn cumulative_notice_accepts_no_totals_or_a_complete_pair() {
         for extra in [

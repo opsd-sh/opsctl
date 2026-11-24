@@ -722,7 +722,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opsctl"
-version = "0.5.3"
+version = "0.6.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -741,9 +741,9 @@ dependencies = [
 
 [[package]]
 name = "opsd"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fb599a435dfa2980d6c6e5434b387cd1345e4283bf9ea3634993096121ed2b9"
+checksum = "cabf3b26fb7fbf3e8c848bced3b24b0615dbed82b355ab44672f9bc1abf12b14"
 dependencies = [
  "reqwest",
  "serde",
