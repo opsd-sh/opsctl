@@ -74,7 +74,7 @@ impl From<PaymentMethodPage> for ListPaymentMethodsRequest {
 /// Create only after the API download succeeds. Never overwrite existing files.
 pub(crate) fn save_pdf(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     write_new_pdf(path, |file| file.write_all(bytes))?;
-    eprintln!("Saved invoice PDF to {}", path.display());
+    eprintln!("Saved PDF to {}", path.display());
     Ok(())
 }
 
@@ -84,12 +84,23 @@ fn write_new_pdf(
     path: &Path,
     write_contents: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {
+    let mut temporary = temporary_output(path)?;
+    write_contents(temporary.as_file_mut())?;
+    persist_output(temporary, path)
+}
+
+pub(crate) fn temporary_output(path: &Path) -> io::Result<tempfile::NamedTempFile> {
     let directory = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-    write_contents(temporary.as_file_mut())?;
+    tempfile::NamedTempFile::new_in(directory)
+}
+
+pub(crate) fn persist_output(
+    mut temporary: tempfile::NamedTempFile,
+    path: &Path,
+) -> io::Result<()> {
     temporary.as_file_mut().flush()?;
     temporary.as_file().sync_all()?;
     temporary

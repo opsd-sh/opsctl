@@ -130,6 +130,9 @@ async fn main() {
             error_style.render(),
             error_style.render_reset()
         );
+        if error.is::<payroll_runs::PayslipDownloadCancelled>() {
+            std::process::exit(130);
+        }
         if let Some(seconds) = error
             .downcast_ref::<opsd::Error>()
             .and_then(opsd::Error::retry_after_seconds)

@@ -722,7 +722,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opsctl"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clap",
  "clap_complete",
@@ -741,9 +741,9 @@ dependencies = [
 
 [[package]]
 name = "opsd"
-version = "0.5.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cabf3b26fb7fbf3e8c848bced3b24b0615dbed82b355ab44672f9bc1abf12b14"
+checksum = "2d39192ae5d7b8f3fc8ca4cae4eebbaccffebecb0da5d43e1f7bad56605bb4c3"
 dependencies = [
  "reqwest",
  "serde",
@@ -1119,6 +1119,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
+
+[[package]]
 name = "simd_cesu8"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1304,6 +1314,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
