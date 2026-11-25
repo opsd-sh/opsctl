@@ -3,7 +3,7 @@ mod support;
 use serde_json::{Value, json};
 use support::{
     fixtures::{B, DATE, I, P, U, employment, password_file, run, scheme},
-    http::{check, request, requests},
+    http::{check, request, requests, requests_with_base_url},
 };
 
 fn calculation() -> Value {
@@ -686,4 +686,311 @@ fn read_and_amend_payroll_import() {
         Some(changes),
         Some(opening),
     );
+}
+
+fn payslip_descriptor(url: String) -> Value {
+    json!({
+        "url": url, "filename": "payslip.pdf", "mime_type": "application/pdf",
+        "expires_at": "2026-10-31T10:10:00Z"
+    })
+}
+
+#[test]
+fn payslip_download_uses_the_api_origin_without_forwarding_the_api_credential() {
+    let token = "a".repeat(64);
+    let path = format!("businesses/{B}/payroll-runs/{P}/employments/{I}/payslip");
+    let args = ["payroll-runs", "payslip", B, P, I];
+    let mut expected = Value::Null;
+    let (output, requests) = requests_with_base_url(&args, |base| {
+        expected = payslip_descriptor(format!("{base}downloads/{token}"));
+        vec![(
+            200,
+            "application/json".into(),
+            expected.to_string().into_bytes(),
+        )]
+    });
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(requests[0].starts_with(&format!("GET /v1/{path} HTTP/1.1")));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        expected
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("payslip.pdf");
+    let mut file_args = args.to_vec();
+    file_args.extend(["--output", file.to_str().unwrap()]);
+
+    let foreign =
+        payslip_descriptor(format!("https://other.example/downloads/{token}")).to_string();
+    for command in [args.as_slice(), file_args.as_slice()] {
+        let (output, _) = request(command, 200, "application/json", foreign.as_bytes());
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("invalid payslip download link"), "{error}");
+        assert!(!error.contains(&token));
+        assert!(!file.exists());
+    }
+
+    let (output, requests) = requests_with_base_url(&file_args, |base| {
+        vec![
+            (
+                200,
+                "application/json".into(),
+                payslip_descriptor(format!("{base}downloads/{token}"))
+                    .to_string()
+                    .into_bytes(),
+            ),
+            (200, "application/pdf".into(), b"%PDF-test".to_vec()),
+        ]
+    });
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(requests[1].starts_with(&format!("GET /downloads/{token} HTTP/1.1")));
+    assert_eq!(std::fs::read(&file).unwrap(), b"%PDF-test");
+}
+
+#[test]
+fn payslip_download_reports_the_failure_without_saving_a_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("payslip.pdf");
+    let args = [
+        "payroll-runs",
+        "payslip",
+        B,
+        P,
+        I,
+        "--output",
+        file.to_str().unwrap(),
+    ];
+    let token = "private-download-token";
+
+    for (status, content_type, body, expected) in [
+        (
+            404,
+            "application/problem+json",
+            "expired",
+            "Payslip link expired or could not be found. Request a fresh link.",
+        ),
+        (
+            503,
+            "application/problem+json",
+            "unavailable",
+            "Payslip download temporarily unavailable. Try again shortly.",
+        ),
+        (
+            200,
+            "text/plain",
+            "%PDF-",
+            "The download returned an invalid PDF.",
+        ),
+        (
+            200,
+            "application/pdf",
+            "invalid",
+            "The download returned an invalid PDF.",
+        ),
+        (
+            403,
+            "text/plain",
+            "forbidden",
+            "Payslip download returned HTTP 403.",
+        ),
+    ] {
+        let (output, _) = requests_with_base_url(&args, |base| {
+            let link = payslip_descriptor(format!("{base}downloads/{token}"));
+            vec![
+                (
+                    200,
+                    "application/json".into(),
+                    link.to_string().into_bytes(),
+                ),
+                (
+                    status,
+                    content_type.into(),
+                    format!("{body} {token}").into_bytes(),
+                ),
+            ]
+        });
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.trim_end().ends_with(expected), "{stderr}");
+        assert!(!stderr.contains(token));
+        assert!(!file.exists());
+    }
+}
+
+#[test]
+fn batch_payslip_export_returns_an_id_then_downloads_the_ready_zip() {
+    let path = format!("businesses/{B}/payroll-runs/{P}/payslip-exports");
+    let receipt = json!({"export_id": I});
+    let (out, sent) = request(
+        &["payroll-runs", "request-payslip-export", B, P],
+        202,
+        "application/json",
+        receipt.to_string().as_bytes(),
+    );
+    assert!(out.status.success());
+    assert!(sent.starts_with(&format!("POST /v1/{path} HTTP/1.1")));
+    assert_eq!(
+        serde_json::from_slice::<Value>(&out.stdout).unwrap(),
+        receipt
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("run.zip");
+    let args = ["payroll-runs", "get-payslip-export", B, P, I];
+    for status in ["preparing", "failed", "expired"] {
+        let body = json!({"status":status});
+        let (out, _) = request(&args, 200, "application/json", body.to_string().as_bytes());
+        assert!(out.status.success());
+        assert_eq!(serde_json::from_slice::<Value>(&out.stdout).unwrap(), body);
+    }
+
+    let mut save_args = args.to_vec();
+    save_args.extend(["--output", file.to_str().unwrap()]);
+    let token = "b".repeat(64);
+    let zip = b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+    let (out, calls) = requests_with_base_url(&save_args, |base| {
+        let body = json!({"status":"ready","download":{
+            "url":format!("{base}downloads/{token}"), "mime_type":"application/zip",
+            "filename":"payslips.zip", "expires_at":"2026-11-24T18:00:00Z"}});
+        vec![
+            (
+                200,
+                "application/json".into(),
+                body.to_string().into_bytes(),
+            ),
+            (200, "application/zip".into(), zip.to_vec()),
+        ]
+    });
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(calls[0].starts_with(&format!("GET /v1/{path}/{I} HTTP/1.1")));
+    assert!(calls[1].starts_with(&format!("GET /downloads/{token} HTTP/1.1")));
+    assert!(!calls[1].to_lowercase().contains("authorization:"));
+    assert_eq!(std::fs::read(&file).unwrap(), zip);
+}
+
+#[test]
+fn invalid_zip_download_leaves_no_output_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("payslips.zip");
+    let args = [
+        "payroll-runs",
+        "get-payslip-export",
+        B,
+        P,
+        I,
+        "--output",
+        path.to_str().unwrap(),
+    ];
+    let (out, _) = requests_with_base_url(&args, |base| {
+        let body = json!({"status":"ready","download":{"url":format!("{base}downloads/opaque"),
+            "filename":"run.zip","mime_type":"application/zip","expires_at":"2026-11-24T18:00:00Z"}});
+        vec![
+            (
+                200,
+                "application/json".into(),
+                body.to_string().into_bytes(),
+            ),
+            (200, "application/zip".into(), b"truncated".to_vec()),
+        ]
+    });
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("invalid ZIP"));
+    assert_eq!(directory.path().read_dir().unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_removes_a_partially_downloaded_payslip_zip() {
+    use std::{
+        fs,
+        io::Write,
+        net::TcpListener,
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+    use support::http::{authenticated_cli, receive_request};
+
+    fn wait_until(message: &str, mut ready: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ready() {
+            assert!(Instant::now() < deadline, "{message}");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let base_url = format!("http://{}/", listener.local_addr().unwrap());
+    let (_config, mut cli) = authenticated_cli(&base_url);
+    let mut child = cli
+        .args(["payroll-runs", "get-payslip-export", B, P, I, "--output"])
+        .arg(directory.path().join("payslips.zip"))
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let status = json!({
+        "status": "ready",
+        "download": {
+            "url": format!("{base_url}downloads/opaque"),
+            "mime_type": "application/zip",
+            "filename": "payslips.zip",
+            "expires_at": "2099-01-01T00:00:00Z"
+        }
+    })
+    .to_string();
+    let (mut api, _) = receive_request(&listener);
+    write!(
+        api,
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\nConnection: close\r\n\r\n{status}",
+        status.len()
+    )
+    .unwrap();
+    let (mut download, _) = receive_request(&listener);
+    download
+        .write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\n\
+          Content-Length: 8192\r\n\r\nPK\x03\x04partial payslip",
+        )
+        .unwrap();
+
+    wait_until("no ZIP bytes reached disk", || {
+        fs::read_dir(directory.path())
+            .unwrap()
+            .any(|file| file.unwrap().metadata().unwrap().len() > 0)
+    });
+    assert!(
+        Command::new("kill")
+            .arg("-INT")
+            .arg(child.id().to_string())
+            .status()
+            .unwrap()
+            .success()
+    );
+    wait_until("opsctl did not exit on Ctrl+C", || {
+        child.try_wait().unwrap().is_some()
+    });
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Payslip ZIP download cancelled."));
+    assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
 }

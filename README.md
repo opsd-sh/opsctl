@@ -281,6 +281,30 @@ read `rollover_generation` from the scheme before starting. Use the progress
 commands below to continue an interrupted rollover instead of repeating its
 start request.
 
+### Download a payslip
+
+After HMRC accepts the run, download one employment’s PDF to a new file:
+
+```sh
+opsctl payroll-runs payslip BUSINESS_ID RUN_ID EMPLOYMENT_ID --output payslip.pdf
+```
+
+Omit `--output` to print the expiring download link on the Opsd API domain.
+
+### Download all payslips for one run
+
+```sh
+opsctl payroll-runs request-payslip-export BUSINESS_ID RUN_ID
+opsctl payroll-runs get-payslip-export BUSINESS_ID RUN_ID EXPORT_ID
+opsctl payroll-runs get-payslip-export BUSINESS_ID RUN_ID EXPORT_ID --output payslips.zip
+```
+
+Use the export ID returned by the first command. Poll while the status is
+`preparing`. A `ready` result includes a private, expiring download link.
+Use `--output` to stream the ZIP into a new local file. If you cancel the
+download with Ctrl+C, you can retry with the same export ID while it is
+`ready`. Request a new export after `failed` or `expired`.
+
 ## Reporting details and submission progress
 
 An employee address file contains one of:

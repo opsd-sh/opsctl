@@ -14,7 +14,7 @@ use crate::{
     print_json,
 };
 use opsd::types::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum PayrollRunsCommand {
@@ -132,6 +132,28 @@ pub(crate) enum PayrollRunsCommand {
     Discard {
         business_id: BusinessId,
         payroll_run_id: PayrollRunId,
+    },
+    /// Request a ZIP of all payslips in an accepted run and print its export ID.
+    RequestPayslipExport {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+    },
+    /// Check an export. Use --output to download a ready ZIP to a new file.
+    GetPayslipExport {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+        export_id: PayslipExportId,
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Download one payslip from an HMRC-accepted run. Omit --output to print a private expiring link.
+    Payslip {
+        business_id: BusinessId,
+        payroll_run_id: PayrollRunId,
+        employment_id: EmploymentId,
+        /// Save the PDF to a new owner-only file.
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
     /// List employees and their saved net amounts to pay for a finalised run.
     Payments {
@@ -328,6 +350,66 @@ pub(crate) async fn execute(
                 .discard_payroll_run(business_id, payroll_run_id)
                 .await?
         }
+        PayrollRunsCommand::RequestPayslipExport {
+            business_id,
+            payroll_run_id,
+        } => print_json(
+            &client
+                .request_payslip_export(business_id, payroll_run_id)
+                .await?,
+        )?,
+        PayrollRunsCommand::GetPayslipExport {
+            business_id,
+            payroll_run_id,
+            export_id,
+            output,
+        } => {
+            let status = client
+                .get_payslip_export(business_id, payroll_run_id, export_id)
+                .await?;
+            if let Some(path) = output {
+                let download = match status {
+                    PayslipExportStatus::Ready { download } => download,
+                    PayslipExportStatus::Preparing => {
+                        return Err("Payslip export is preparing. Check again shortly.".into());
+                    }
+                    PayslipExportStatus::Failed => {
+                        return Err("Payslip export failed. Request a new export.".into());
+                    }
+                    PayslipExportStatus::Expired => {
+                        return Err("Payslip export expired. Request a new export.".into());
+                    }
+                };
+                tokio::select! {
+                    // Register Ctrl+C before the download creates its temporary file.
+                    biased;
+                    signal = tokio::signal::ctrl_c() => {
+                        signal?;
+                        return Err(PayslipDownloadCancelled.into());
+                    }
+                    result = save_payslip_zip(client, &download, &path) => result?,
+                }
+                eprintln!("Saved ZIP to {}", path.display());
+            } else {
+                print_json(&status)?;
+            }
+        }
+        PayrollRunsCommand::Payslip {
+            business_id,
+            payroll_run_id,
+            employment_id,
+            output,
+        } => {
+            let link = client
+                .request_payslip(business_id, payroll_run_id, employment_id)
+                .await?;
+            if let Some(path) = output {
+                let pdf = client.fetch_payslip_pdf(&link).await?;
+                crate::billing::save_pdf(&path, &pdf)?;
+            } else {
+                print_json(&link)?;
+            }
+        }
         PayrollRunsCommand::Payments {
             business_id,
             payroll_run_id,
@@ -381,6 +463,23 @@ pub(crate) async fn execute(
         }
     }
 
+    Ok(())
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Payslip ZIP download cancelled.")]
+pub(crate) struct PayslipDownloadCancelled;
+
+async fn save_payslip_zip(
+    client: &OpsdClient,
+    download: &PayslipDownload,
+    path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut temporary = crate::billing::temporary_output(path)?;
+    client
+        .write_payslip_zip(download, temporary.as_file_mut())
+        .await?;
+    crate::billing::persist_output(temporary, path)?;
     Ok(())
 }
 
